@@ -6,10 +6,27 @@ schema, so three providers cost one implementation.
 from __future__ import annotations
 
 import json
+import re
 
 import requests
 
 from .base import BaseLLM, LLMResponse, ToolCall
+
+# Llama-family models sometimes emit tool calls as text like
+#   <function=remember {"text": "..."}</function>
+# instead of using the structured tool_calls field. Rescue those.
+_PSEUDO_CALL = re.compile(r"<function=(\w+)\s*(\{.*?\})?\s*(?:</function>|/?>)", re.DOTALL)
+
+
+def _rescue_pseudo_calls(out: LLMResponse) -> LLMResponse:
+    for m in _PSEUDO_CALL.finditer(out.text):
+        try:
+            args = json.loads(m.group(2)) if m.group(2) else {}
+        except json.JSONDecodeError:
+            continue
+        out.tool_calls.append(ToolCall(name=m.group(1), args=args or {}))
+    out.text = _PSEUDO_CALL.sub("", out.text).replace("</function>", "").strip()
+    return out
 
 
 def _to_openai_messages(messages: list[dict], system: str) -> list[dict]:
@@ -58,16 +75,20 @@ class OpenAICompatLLM(BaseLLM):
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
             json=payload, timeout=180)  # generous: local models load cold
-        r.raise_for_status()
+        if r.status_code >= 400:  # surface the API's actual complaint, not just the code
+            raise requests.HTTPError(f"{r.status_code}: {r.text[:300]}")
         msg = r.json()["choices"][0]["message"]
 
         out = LLMResponse(text=msg.get("content") or "")
         for tc in msg.get("tool_calls") or []:
             try:
-                args = json.loads(tc["function"]["arguments"] or "{}")
+                # `or {}` twice: arguments may be missing, "", or the JSON literal null
+                args = json.loads(tc["function"]["arguments"] or "{}") or {}
             except json.JSONDecodeError:
                 args = {}
             out.tool_calls.append(ToolCall(name=tc["function"]["name"], args=args, id=tc.get("id", "")))
+        if "<function=" in out.text:
+            out = _rescue_pseudo_calls(out)
         return out
 
     def embed(self, text: str) -> list[float]:

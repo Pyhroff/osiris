@@ -99,7 +99,9 @@ def main():
                 print(f"  [→ {profile.key} agent]")
             try:
                 echo = lambda n, a: print(f"  ⚙ {n}({', '.join(f'{k}={v!r}' for k, v in a.items())})")
-                print(f"\nosiris › {agent.run(line, profile=profile, on_tool=echo)}\n")
+                reply = agent.run(line, profile=profile, on_tool=echo)
+                via = getattr(llm, "active", "")
+                print(f"\nosiris › {reply}" + (f"\n  [{via}]\n" if via else "\n"))
             except Exception as e:
                 print(f"\n[error] {type(e).__name__}: {e}\n")
 

@@ -66,6 +66,7 @@ class Agent:
                 return resp.text or "(no response)"
 
             for tc in resp.tool_calls:
+                tc.args = tc.args or {}  # some models send null args for no-param tools
                 if on_tool:
                     on_tool(tc.name, tc.args)
                 result = self.tools.execute(tc.name, tc.args)

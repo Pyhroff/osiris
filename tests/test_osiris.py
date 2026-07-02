@@ -297,6 +297,33 @@ def test_openai_ids_match_for_idless_tool_calls():
     assert out[0]["content"] == ""
 
 
+def test_pseudo_function_calls_rescued_from_text():
+    from osiris.providers.openai_compat import _rescue_pseudo_calls
+    out = LLMResponse(text='Sure! <function=remember {"text": "user likes green"}</function> Done.')
+    out = _rescue_pseudo_calls(out)
+    assert out.tool_calls[0].name == "remember"
+    assert out.tool_calls[0].args == {"text": "user likes green"}
+    assert "<function" not in out.text and "Done." in out.text
+
+
+def test_null_tool_args_do_not_crash(mem, reg):
+    class NullArgsLLM(BaseLLM):
+        name = "nullargs"
+        calls = 0
+        def chat(self, messages, system="", tools=None):
+            self.calls += 1
+            if self.calls == 1:
+                return LLMResponse(tool_calls=[ToolCall(name="list_tasks", args=None)])
+            return LLMResponse(text="done")
+        def embed(self, text):
+            return StubLLM().embed(text)
+
+    agent = Agent(NullArgsLLM(), mem, reg)
+    seen = []
+    reply = agent.run("list my tasks", on_tool=lambda n, a: seen.append(a.items() is not None))
+    assert reply == "done" and seen == [True]
+
+
 def test_gemini_skips_empty_assistant_turn():
     contents = _to_gemini_contents([
         {"role": "user", "content": "hi"},

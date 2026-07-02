@@ -59,10 +59,11 @@ def chat(req: ChatRequest):
         _turns += 1
         if _turns % REFLECT_EVERY == 0:  # learn in the background, never block a reply
             threading.Thread(target=_background_reflect, daemon=True).start()
-        return {"reply": reply, "agent": profile.key, "tools": trace, "error": False}
+        return {"reply": reply, "agent": profile.key, "tools": trace, "error": False,
+                "provider": getattr(llm, "active", "")}
     except Exception as e:
         return {"reply": f"{type(e).__name__}: {e}", "agent": profile.key,
-                "tools": trace, "error": True}
+                "tools": trace, "error": True, "provider": getattr(llm, "active", "")}
 
 
 @app.post("/api/reflect")

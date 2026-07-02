@@ -11,6 +11,18 @@ from __future__ import annotations
 from .providers import BaseLLM, LLMResponse, build_chain
 
 
+def _reason(e: Exception) -> str:
+    """One short human phrase instead of a wall of API JSON."""
+    msg = str(e)
+    if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "rate limit" in msg.lower():
+        return "rate/quota limit hit"
+    if "timed out" in msg.lower() or "timeout" in msg.lower():
+        return "timed out"
+    if "401" in msg or "403" in msg or "API key" in msg:
+        return "auth problem (check the key in .env)"
+    return f"{type(e).__name__}: {msg[:120]}"
+
+
 class ModelRouter(BaseLLM):
     name = "router"
 
@@ -28,12 +40,26 @@ class ModelRouter(BaseLLM):
         last_error: Exception | None = None
         for provider in self.chain:
             try:
-                return provider.chat(messages, system=system, tools=tools)
+                resp = provider.chat(messages, system=system, tools=tools)
+                self.last_provider = provider
+                return resp
             except Exception as e:
                 last_error = e
                 if self.verbose:
-                    print(f"  [{provider.name} failed ({type(e).__name__}), failing over]")
+                    try:  # console encodings vary on Windows; a log line must never kill the request
+                        print(f"  [{provider.name}: {_reason(e)} -> trying next provider]")
+                    except Exception:
+                        pass
         raise RuntimeError(f"all providers failed; last error: {last_error}") from last_error
+
+    @property
+    def active(self) -> str:
+        """Human-readable 'who answered last', e.g. 'groq · llama-3.3-70b-versatile'."""
+        p = getattr(self, "last_provider", None)
+        if not p:
+            return ""
+        model = getattr(p, "model", "")
+        return f"{p.name} · {model}" if model else p.name
 
     def embed(self, text: str) -> list[float]:
         if not self.embedder:

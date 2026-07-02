@@ -43,6 +43,7 @@
     display: inline-block; font-size: 11px; color: var(--bg); background: var(--dim);
     padding: 0 7px; border-radius: 2px; margin-left: 8px; vertical-align: 1px;
   }
+  .agentbadge.provider { background: transparent; color: var(--dim); border: 1px solid var(--dim); }
   .tool { color: var(--faint); font-size: 12.5px; margin: 2px 0 2px 14px; }
   .tool::before { content: "⚙ "; }
   .thinking { color: var(--dim); }
@@ -128,6 +129,9 @@ function addMsg(who, text, opts = {}) {
   if (opts.agent && opts.agent !== "personal") {
     const b = el("agentbadge", opts.agent); b.className = "agentbadge"; m.appendChild(b);
   }
+  if (opts.provider) {
+    const p = el("agentbadge provider", opts.provider); m.appendChild(p);
+  }
   chat.appendChild(m);
   chat.scrollTop = chat.scrollHeight;
   return m;
@@ -157,7 +161,7 @@ form.addEventListener("submit", async (e) => {
       const args = Object.entries(t.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
       chat.appendChild(el("tool", `${t.name}(${args})`));
     }
-    addMsg("osiris", data.reply, { agent: data.agent, error: data.error });
+    addMsg("osiris", data.reply, { agent: data.agent, error: data.error, provider: data.provider });
   } catch (err) {
     pending.remove();
     addMsg("osiris", "connection lost: " + err.message, { error: true });
