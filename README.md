@@ -51,6 +51,15 @@ python server.py              # web UI → http://localhost:8765
 python main.py                # terminal REPL
 ```
 
+### `osiris` from any terminal (optional)
+
+```bash
+copy osiris.cmd "%LOCALAPPDATA%\Microsoft\WindowsApps\"
+# edit the copied file: set OSIRIS_HOME to your clone's absolute path
+```
+
+Then from anywhere: `osiris` (REPL) · `osiris serve` (web UI) · `osiris daemon` (reminders).
+
 You need **at least one** provider (all free options):
 - Gemini: https://aistudio.google.com/apikey (recommended — also powers memory embeddings)
 - Groq: https://console.groq.com/keys
