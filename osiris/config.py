@@ -25,6 +25,10 @@ OPENAI_MODEL = os.getenv("OSIRIS_OPENAI_MODEL", "gpt-4o-mini")
 EMBED_MODEL = os.getenv("OSIRIS_EMBED_MODEL", "gemini-embedding-001")
 EMBED_DIM = 768  # keep vectors small; free tier is generous but not infinite
 
+# Set OSIRIS_EMBEDDINGS=off to stop spending Gemini quota on memory embeddings;
+# recall falls back to keyword search (less smart, zero API cost).
+EMBEDDINGS_ENABLED = os.getenv("OSIRIS_EMBEDDINGS", "on").lower() not in ("off", "0", "false")
+
 DB_PATH = ROOT / "osiris.db"
 WORKSPACE = ROOT / "workspace"  # write_file/read_file sandbox
 WORKSPACE.mkdir(exist_ok=True)

@@ -52,10 +52,12 @@ class Memory:
 
     # -- facts ---------------------------------------------------------------
     def remember(self, text: str, kind: str = "fact") -> int:
-        try:
-            emb = json.dumps(self.llm.embed(text))
-        except Exception:
-            emb = None  # degrade gracefully; keyword fallback still finds it
+        emb = None
+        if config.EMBEDDINGS_ENABLED:
+            try:
+                emb = json.dumps(self.llm.embed(text))
+            except Exception:
+                emb = None  # degrade gracefully; keyword fallback still finds it
         cur = self.db.execute(
             "INSERT INTO memories (text, kind, embedding, created_at) VALUES (?,?,?,?)",
             (text, kind, emb, datetime.now().isoformat(timespec="seconds")))
@@ -66,12 +68,12 @@ class Memory:
         rows = self.db.execute("SELECT id, text, embedding FROM memories").fetchall()
         if not rows:
             return []
+        if not config.EMBEDDINGS_ENABLED:
+            return self._keyword_search(query, rows, top_k)
         try:
             q = self.llm.embed(query)
         except Exception:
-            words = [w for w in query.lower().split() if len(w) > 3]
-            return [r["text"] for r in rows
-                    if any(w in r["text"].lower() for w in words)][:top_k]
+            return self._keyword_search(query, rows, top_k)
 
         rows = self._backfill_embeddings(rows)
         scored = []
@@ -83,6 +85,12 @@ class Memory:
                 scored.append((_cosine(q, vec), r["text"]))
         scored.sort(reverse=True)
         return [t for s, t in scored[:top_k] if s >= min_score]
+
+    @staticmethod
+    def _keyword_search(query: str, rows, top_k: int) -> list[str]:
+        words = [w for w in query.lower().split() if len(w) > 3]
+        return [r["text"] for r in rows
+                if any(w in r["text"].lower() for w in words)][:top_k]
 
     def _backfill_embeddings(self, rows, limit: int = 5):
         """Embed memories saved while embeddings were unavailable, a few per recall."""

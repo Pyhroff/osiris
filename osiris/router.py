@@ -8,13 +8,24 @@ agent/memory/planner never know or care which brain answered.
 """
 from __future__ import annotations
 
+import time
+
 from .providers import BaseLLM, LLMResponse, build_chain
+
+RETRY_WAIT = 8          # seconds between full-chain passes (limits are per-minute)
+COOLDOWN_RATELIMIT = 90  # skip a rate-limited provider for this long
+COOLDOWN_OTHER = 30      # skip a provider with other errors briefly
+
+
+def _is_ratelimit(e: Exception) -> bool:
+    msg = str(e)
+    return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "rate limit" in msg.lower()
 
 
 def _reason(e: Exception) -> str:
     """One short human phrase instead of a wall of API JSON."""
     msg = str(e)
-    if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "rate limit" in msg.lower():
+    if _is_ratelimit(e):
         return "rate/quota limit hit"
     if "timed out" in msg.lower() or "timeout" in msg.lower():
         return "timed out"
@@ -29,6 +40,7 @@ class ModelRouter(BaseLLM):
     def __init__(self, chain: list[BaseLLM] | None = None, verbose: bool = True):
         self.chain = chain if chain is not None else build_chain()
         self.verbose = verbose
+        self._cooldown: dict[str, float] = {}  # provider name -> unix time it may retry
         if not self.chain:
             raise RuntimeError(
                 "no LLM providers available — set GEMINI_API_KEY (free: aistudio.google.com/apikey), "
@@ -37,20 +49,36 @@ class ModelRouter(BaseLLM):
         self.embedder = next((p for p in self.chain if p.name == "gemini"), None)
 
     def chat(self, messages, system="", tools=None) -> LLMResponse:
+        """Defence in depth: skip cooling-down providers, fail over on error,
+        and if the whole chain fails, breathe and retry once before giving up."""
         last_error: Exception | None = None
-        for provider in self.chain:
-            try:
-                resp = provider.chat(messages, system=system, tools=tools)
-                self.last_provider = provider
-                return resp
-            except Exception as e:
-                last_error = e
-                if self.verbose:
-                    try:  # console encodings vary on Windows; a log line must never kill the request
-                        print(f"  [{provider.name}: {_reason(e)} -> trying next provider]")
-                    except Exception:
-                        pass
-        raise RuntimeError(f"all providers failed; last error: {last_error}") from last_error
+        for attempt in (1, 2):
+            for provider in self.chain:
+                if attempt == 1 and self._cooldown.get(provider.name, 0) > time.time():
+                    continue  # recently rate-limited; skip silently, no error spam
+                try:
+                    resp = provider.chat(messages, system=system, tools=tools)
+                    self.last_provider = provider
+                    self._cooldown.pop(provider.name, None)
+                    return resp
+                except Exception as e:
+                    last_error = e
+                    cool = COOLDOWN_RATELIMIT if _is_ratelimit(e) else COOLDOWN_OTHER
+                    self._cooldown[provider.name] = time.time() + cool
+                    self._log(f"[{provider.name}: {_reason(e)} -> resting it {cool}s]")
+            if attempt == 1:
+                self._log(f"[every provider is busy -- retrying in {RETRY_WAIT}s]")
+                time.sleep(RETRY_WAIT)
+        raise RuntimeError(
+            "all providers are rate-limited or unreachable right now — wait a minute "
+            f"and try again (last problem: {_reason(last_error)})") from last_error
+
+    def _log(self, line: str):
+        if self.verbose:
+            try:  # console encodings vary on Windows; a log line must never kill the request
+                print(f"  {line}")
+            except Exception:
+                pass
 
     @property
     def active(self) -> str:

@@ -191,21 +191,46 @@ def test_git_tools_on_real_repo(reg, tmp_path):
 
 class DeadLLM(BaseLLM):
     name = "dead"
+    def __init__(self):
+        self.calls = 0
     def chat(self, *a, **k):
-        raise ConnectionError("boom")
+        self.calls += 1
+        raise ConnectionError("429 rate limit boom")
 
 
 def test_router_failover():
     r = ModelRouter(chain=[DeadLLM(), StubLLM()], verbose=False)
     assert "linear algebra" in r.chat([{"role": "user", "content": "x"}]).text
     assert r.describe() == "dead → stub"
+    assert "stub" in r.active
 
 
-def test_router_all_dead_and_empty():
-    with pytest.raises(RuntimeError, match="all providers failed"):
-        ModelRouter(chain=[DeadLLM()], verbose=False).chat([{"role": "user", "content": "x"}])
+def test_router_cooldown_skips_failed_provider():
+    dead = DeadLLM()
+    r = ModelRouter(chain=[dead, StubLLM()], verbose=False)
+    r.chat([{"role": "user", "content": "a"}])
+    assert dead.calls == 1
+    r.chat([{"role": "user", "content": "b"}])  # dead is cooling down -> not retried
+    assert dead.calls == 1
+
+
+def test_router_all_dead_and_empty(monkeypatch):
+    import osiris.router as router_mod
+    monkeypatch.setattr(router_mod.time, "sleep", lambda s: None)
+    dead = DeadLLM()
+    with pytest.raises(RuntimeError, match="rate-limited or unreachable"):
+        ModelRouter(chain=[dead], verbose=False).chat([{"role": "user", "content": "x"}])
+    assert dead.calls == 2  # first pass + post-breather retry pass
     with pytest.raises(RuntimeError, match="no LLM providers"):
         ModelRouter(chain=[])
+
+
+def test_embeddings_flag_off_uses_keyword_search(mem, monkeypatch):
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", False)
+    mem.remember("user prefers quantum computing projects")
+    row = mem.db.execute("SELECT embedding FROM memories").fetchone()
+    assert row["embedding"] is None  # no API spend
+    assert mem.recall("quantum projects") == ["user prefers quantum computing projects"]
 
 
 # -- agents ----------------------------------------------------------------
