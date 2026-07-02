@@ -6,6 +6,7 @@ from osiris.agent import Agent
 from osiris.agents import pick_agent
 from osiris.memory import Memory
 from osiris.planner import Planner
+from osiris.reflection import reflect
 from osiris.router import ModelRouter
 from osiris.tools import build_registry
 
@@ -21,9 +22,24 @@ BANNER = r"""
 HELP = """commands:
   /goals     show active goals & milestones
   /tasks     show pending scheduled tasks
+  /reflect   distill this session into long-term memories now
   /help      this message
-  /quit      exit
+  /quit      exit (reflects automatically)
 anything else goes straight to the agent."""
+
+
+def _run_reflection(llm, memory, agent):
+    try:
+        stored = reflect(llm, memory, agent.history)
+    except Exception as e:
+        print(f"[reflection failed: {e}]")
+        return
+    if stored:
+        print("reflected — remembered:")
+        for f in stored:
+            print(f"  + {f}")
+    else:
+        print("reflected — nothing new worth keeping.")
 
 
 def main():
@@ -54,10 +70,14 @@ def main():
         if not line:
             continue
         if line in ("/quit", "/exit"):
+            if len(agent.history) >= 3:
+                _run_reflection(llm, memory, agent)
             print("bye.")
             break
         if line == "/help":
             print(HELP)
+        elif line == "/reflect":
+            _run_reflection(llm, memory, agent)
         elif line == "/goals":
             goals = memory.list_goals()
             if not goals:

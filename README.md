@@ -1,5 +1,7 @@
 # OSIRIS
 
+![tests](https://github.com/Pyhroff/osiris/actions/workflows/ci.yml/badge.svg)
+
 Personal AI operating system — intelligence as the kernel. Model-agnostic,
 multi-agent, with persistent memory, long-horizon planning, a task scheduler,
 sandboxed files, and Gmail/Calendar/GitHub integration. Runs entirely on
@@ -130,6 +132,9 @@ and integration tools are verified to fail gracefully without credentials.
 - [x] Specialized agents with per-agent tool subsets
 - [x] Google Drive (search + read) and Discord (send + daemon reminders)
 - [x] Web frontend: terminal-style chat with live goals/tasks panel
+- [x] Reflection pass: sessions are distilled into long-term memories
+      (`/reflect`, on REPL exit, and every 8 web turns in the background —
+      deduplicated by embedding similarity)
+- [x] CI: pytest on Ubuntu + Windows
 - [ ] Knowledge graph over memories (entities + relations, not just embeddings)
 - [ ] Notion integration
-- [ ] Reflection pass: agent summarizes each session into long-term memories

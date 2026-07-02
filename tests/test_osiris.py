@@ -121,7 +121,8 @@ def test_fs_allowed_roots(reg, tmp_path):
     (tmp_path / "proj" / "a.txt").write_text("data", encoding="utf-8")
     assert reg.execute("fs_read", {"path": str(tmp_path / "proj" / "a.txt")}) == "data"
     assert "a.txt" in reg.execute("fs_list", {"path": str(tmp_path / "proj")})
-    assert "outside allowed" in reg.execute("fs_read", {"path": "C:/Windows/win.ini"})
+    outside = tmp_path.parent / "outside.txt"  # sibling of the only allowed root
+    assert "outside allowed" in reg.execute("fs_read", {"path": str(outside)})
 
 
 def test_graceful_errors_without_credentials(reg):
@@ -151,7 +152,7 @@ def test_git_tools_on_real_repo(reg, tmp_path):
     assert "update" in out
     sync = json.loads(reg.execute("git_sync_check", {"repo": str(repo)}))
     assert sync["uncommitted_files"] == []
-    assert "outside allowed" in reg.execute("git_status", {"repo": "C:/Windows"})
+    assert "outside allowed" in reg.execute("git_status", {"repo": str(tmp_path.parent / "elsewhere")})
 
 
 # -- router ----------------------------------------------------------------
@@ -198,6 +199,55 @@ def test_history_trim_keeps_turn_boundaries(mem, reg):
     agent._trim_history()
     assert len(agent.history) <= config.MAX_HISTORY
     assert agent.history[0]["role"] == "user"
+
+
+# -- reflection ----------------------------------------------------------------
+
+class ReflectStub(BaseLLM):
+    """Returns a fixed set of extracted facts."""
+    name = "reflect-stub"
+
+    def __init__(self, facts):
+        self.facts = facts
+
+    def chat(self, messages, system="", tools=None):
+        return LLMResponse(text=json.dumps(self.facts))
+
+    def embed(self, text):
+        return StubLLM().embed(text)
+
+
+def _history(n=4):
+    return [{"role": "user" if i % 2 == 0 else "assistant", "content": f"message {i}"}
+            for i in range(n)]
+
+
+def test_reflection_stores_new_facts(mem):
+    from osiris.reflection import reflect
+    llm = ReflectStub(["prefers dark terminal UIs", "targets IBM Quantum roles"])
+    stored = reflect(llm, mem, _history())
+    assert len(stored) == 2
+    assert mem.recall("terminal UI preference", min_score=0.0)
+
+
+def test_reflection_dedupes(mem):
+    from osiris.reflection import reflect
+    llm = ReflectStub(["prefers dark terminal UIs"])
+    assert len(reflect(llm, mem, _history())) == 1
+    assert reflect(llm, mem, _history()) == []  # second pass: exact dup skipped
+
+
+def test_reflection_skips_trivial_sessions(mem):
+    from osiris.reflection import reflect
+    llm = ReflectStub(["should never be stored"])
+    assert reflect(llm, mem, [{"role": "user", "content": "hi"}]) == []
+
+
+def test_reflection_survives_malformed_output(mem):
+    from osiris.reflection import reflect
+    llm = ReflectStub("not json at all")
+    llm.chat = lambda *a, **k: LLMResponse(text="no array here")
+    assert reflect(llm, mem, _history()) == []
 
 
 # -- provider message conversion ----------------------------------------------------------------
