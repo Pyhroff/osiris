@@ -1,0 +1,7 @@
+.env
+credentials.json
+token.json
+osiris.db
+workspace/
+__pycache__/
+*.pyc
