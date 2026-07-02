@@ -193,9 +193,17 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
 
     # -- local git (repos under allowed roots) -------------------------------------
     reg.register(
-        "git_list_repos", "List all local git repositories in the user's project folders.",
+        "git_list_repos", "List all local git repositories with their branch and number of "
+                          "uncommitted changes — one call checks every repo.",
         {"type": "object", "properties": {}},
         lambda: _git_list_repos())
+
+    reg.register(
+        "git_init", "Create a brand-new local git repository (makes the folder if needed).",
+        {"type": "object",
+         "properties": {"path": {"type": "string", "description": "new repo folder, e.g. 'Test'"}},
+         "required": ["path"]},
+        lambda path: _git_init(path))
 
     reg.register(
         "git_status", "Show git status of a local repository folder.",
@@ -394,16 +402,33 @@ def _fs_edit(path: str, find: str, replace: str) -> str:
     return f"replaced {n} occurrence(s) in {p.name}"
 
 
-def _git_list_repos() -> list[str] | str:
+def _git_list_repos() -> list[dict] | str:
     repos = []
     for root in config.ALLOWED_DIRS:
         try:
             for child in sorted(root.iterdir()):
                 if child.is_dir() and (child / ".git").exists():
-                    repos.append(str(child))
-        except OSError:
+                    r = subprocess.run(["git", "-C", str(child), "status", "--porcelain", "-b"],
+                                       capture_output=True, text=True, timeout=15)
+                    lines = r.stdout.splitlines()
+                    repos.append({
+                        "path": str(child),
+                        "branch": lines[0].removeprefix("## ") if lines else "?",
+                        "uncommitted_changes": max(0, len(lines) - 1),
+                    })
+        except (OSError, subprocess.TimeoutExpired):
             continue
     return repos or "no git repositories found in the allowed folders"
+
+
+def _git_init(path: str) -> str:
+    p = _allowed_path(path)
+    if (p / ".git").exists():
+        return f"error: {p} is already a git repository"
+    p.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(["git", "-C", str(p), "init", "-b", "main"],
+                       capture_output=True, text=True, timeout=30)
+    return (r.stdout + r.stderr).strip() or f"initialized empty repo at {p}"
 
 
 def _gh_list_repos() -> list[dict]:

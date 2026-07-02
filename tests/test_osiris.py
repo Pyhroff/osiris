@@ -111,7 +111,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 36
+    assert len(specs) == 37
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -157,6 +157,17 @@ def test_git_list_repos_finds_repos(reg, tmp_path):
     (tmp_path / "notarepo").mkdir()
     out = reg.execute("git_list_repos", {})
     assert "myrepo" in out and "notarepo" not in out
+    assert "uncommitted_changes" in out  # one call now reports status too
+
+
+@pytest.mark.skipif(subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
+                    reason="git not installed")
+def test_git_init_creates_new_repo(reg, tmp_path):
+    out = reg.execute("git_init", {"path": str(tmp_path / "fresh")})
+    assert "error" not in out.lower() or "initialized" in out.lower()
+    assert (tmp_path / "fresh" / ".git").exists()
+    assert "already a git repository" in reg.execute("git_init", {"path": str(tmp_path / "fresh")})
+    assert "outside allowed" in reg.execute("git_init", {"path": str(tmp_path.parent / "evil")})
 
 
 def test_graceful_errors_without_credentials(reg):

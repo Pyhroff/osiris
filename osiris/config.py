@@ -57,5 +57,5 @@ ALLOWED_DIRS = ([Path(p).resolve() for p in os.getenv("OSIRIS_ALLOWED_DIRS", "")
 GIT_NAME = os.getenv("OSIRIS_GIT_NAME", "")
 GIT_EMAIL = os.getenv("OSIRIS_GIT_EMAIL", "")
 
-MAX_AGENT_STEPS = 8   # hard cap on tool-call loops per user turn
+MAX_AGENT_STEPS = 12  # hard cap on tool-call loops per user turn
 MAX_HISTORY = 60      # keep sessions from growing unbounded (trimmed at turn boundaries)
