@@ -117,6 +117,15 @@ def test_workspace_sandbox(reg):
     assert "wrote 5 chars" in reg.execute("write_file", {"path": "n/t.md", "content": "hello"})
     assert reg.execute("read_file", {"path": "n/t.md"}) == "hello"
     assert "escapes" in reg.execute("write_file", {"path": "../x", "content": "x"})
+    # "~" must expand and be blocked, never become a literal directory in workspace
+    assert "escapes" in reg.execute("write_file", {"path": "~/.env", "content": "SECRET"})
+    assert not (config.WORKSPACE / "~").exists()
+
+
+def test_fs_tilde_expands_and_is_guarded(reg):
+    out = reg.execute("fs_read", {"path": "~/.env"})
+    assert "outside allowed" in out or "FileNotFoundError" in out
+    assert "literal" not in out
 
 
 def test_fs_allowed_roots(reg, tmp_path):

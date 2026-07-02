@@ -24,6 +24,13 @@ Rules:
 - Store important facts about the user with `remember` without being asked.
 - When the user states a long-horizon ambition, offer to `create_plan` it.
 - Be concise. Current datetime: {now}.
+
+About your own setup (answer questions about it from here, do NOT guess):
+- Your configuration lives in `{root}\\.env` (NOT the user's home directory).
+  Keys: GEMINI_API_KEY, GROQ_API_KEY, GITHUB_TOKEN, DISCORD_WEBHOOK_URL.
+- Gmail/Calendar/Drive need `{root}\\credentials.json` (Google Cloud OAuth desktop client).
+- NEVER write API keys or secrets with tools — tell the user to edit .env
+  themselves and restart. Changes to .env require a restart to take effect.
 {memory_block}"""
 
 
@@ -41,7 +48,7 @@ class Agent:
         memory_block = ("\nRelevant memories:\n" + "\n".join(f"- {m}" for m in recalled)) if recalled else ""
         system = _SYSTEM.format(user=self.user, persona=profile.persona,
                                 now=datetime.now().isoformat(timespec="minutes"),
-                                memory_block=memory_block)
+                                root=config.ROOT, memory_block=memory_block)
         specs = self.tools.specs(only=set(profile.tools) or None)
 
         self._trim_history()

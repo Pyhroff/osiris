@@ -42,7 +42,8 @@ class ToolRegistry:
 
 def _safe_path(rel: str) -> Path:
     """Resolve a path inside the sandbox; refuse anything that escapes it."""
-    p = (config.WORKSPACE / rel).resolve()
+    expanded = Path(rel).expanduser()  # "~/..." must resolve (and get blocked), not become a literal dir
+    p = (config.WORKSPACE / expanded).resolve()
     if not p.is_relative_to(config.WORKSPACE.resolve()):
         raise PermissionError(f"path escapes workspace: {rel}")
     return p
@@ -50,7 +51,7 @@ def _safe_path(rel: str) -> Path:
 
 def _allowed_path(p: str) -> Path:
     """Resolve a user path; must land inside one of the allowed roots (Desktop by default)."""
-    path = Path(p)
+    path = Path(p).expanduser()
     if not path.is_absolute():
         for root in config.ALLOWED_DIRS:
             if (root / p).exists():
