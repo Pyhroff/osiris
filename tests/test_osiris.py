@@ -50,6 +50,9 @@ def reg(mem, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ALLOWED_DIRS", [tmp_path])
     monkeypatch.setattr(config, "GITHUB_TOKEN", "")
     monkeypatch.setattr(config, "DISCORD_WEBHOOK_URL", "")
+    # CI runners have no global git identity — exercise OSIRIS's own injection
+    monkeypatch.setattr(config, "GIT_NAME", "osiris-test")
+    monkeypatch.setattr(config, "GIT_EMAIL", "osiris@test.local")
     from osiris import google_services
     monkeypatch.setattr(google_services, "CREDENTIALS_FILE", tmp_path / "nope.json")
     monkeypatch.setattr(google_services, "TOKEN_FILE", tmp_path / "notoken.json")
