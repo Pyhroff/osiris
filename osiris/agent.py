@@ -58,7 +58,7 @@ class Agent:
         self._trim_history()
         self.history.append({"role": "user", "content": user_input})
 
-        for _ in range(config.MAX_AGENT_STEPS):
+        for _ in range(profile.max_steps or config.MAX_AGENT_STEPS):
             resp = self.llm.chat(self.history, system=system, tools=specs)
             self.history.append({"role": "assistant", "content": resp.text or None,
                                  "tool_calls": resp.tool_calls})

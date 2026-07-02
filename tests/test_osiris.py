@@ -111,7 +111,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 37
+    assert len(specs) == 39
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -168,6 +168,27 @@ def test_git_init_creates_new_repo(reg, tmp_path):
     assert (tmp_path / "fresh" / ".git").exists()
     assert "already a git repository" in reg.execute("git_init", {"path": str(tmp_path / "fresh")})
     assert "outside allowed" in reg.execute("git_init", {"path": str(tmp_path.parent / "evil")})
+
+
+def test_scaffold_project_writes_whole_tree(reg, tmp_path):
+    files = [{"path": "ARCHITECTURE.md", "content": "# design"},
+             {"path": "src/app.py", "content": "print('hi')"},
+             {"path": "tests/test_app.py", "content": "def test(): pass"}]
+    out = reg.execute("scaffold_project", {"folder": str(tmp_path / "proj"), "files": files})
+    assert "scaffolded 3 files" in out
+    assert (tmp_path / "proj" / "src" / "app.py").read_text() == "print('hi')"
+    out = reg.execute("scaffold_project",
+                      {"folder": str(tmp_path / "proj"),
+                       "files": [{"path": "../evil.py", "content": "x"}]})
+    assert "escapes project folder" in out
+    assert "non-empty array" in reg.execute("scaffold_project",
+                                            {"folder": str(tmp_path / "p2"), "files": []})
+
+
+def test_github_create_repo_requires_local_repo(reg, tmp_path):
+    (tmp_path / "notrepo").mkdir()
+    out = reg.execute("github_create_repo", {"repo": str(tmp_path / "notrepo")})
+    assert "not a git repository" in out
 
 
 def test_graceful_errors_without_credentials(reg):

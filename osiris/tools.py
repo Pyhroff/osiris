@@ -191,6 +191,25 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
          "required": ["path", "find", "replace"]},
         lambda path, find, replace: _fs_edit(path, find, replace))
 
+    # -- project scaffolding ----------------------------------------------------
+    reg.register(
+        "scaffold_project",
+        "Create a complete project in ONE call: writes every file at once (architecture doc, "
+        "source, config, tests). Use this instead of many fs_write calls. Contents must be "
+        "complete, working code — never placeholders or TODOs.",
+        {"type": "object",
+         "properties": {
+             "folder": {"type": "string",
+                        "description": "project folder, e.g. 'OSIRIS FILES/my-app'"},
+             "files": {"type": "array", "description": "every file in the project",
+                       "items": {"type": "object",
+                                 "properties": {"path": {"type": "string",
+                                                         "description": "relative path e.g. 'src/main.py'"},
+                                                "content": {"type": "string"}},
+                                 "required": ["path", "content"]}}},
+         "required": ["folder", "files"]},
+        lambda folder, files: _scaffold_project(folder, files))
+
     # -- local git (repos under allowed roots) -------------------------------------
     reg.register(
         "git_list_repos", "List all local git repositories with their branch and number of "
@@ -244,6 +263,17 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         lambda repo: _git_sync_check(repo))
 
     # -- github ----------------------------------------------------------------
+    reg.register(
+        "github_create_repo",
+        "Create a new GitHub repository from a local repo folder and push it (private by "
+        "default). Always confirm with the user before calling this.",
+        {"type": "object",
+         "properties": {"repo": {"type": "string", "description": "local repo folder"},
+                        "name": {"type": "string", "description": "GitHub repo name; defaults to folder name"},
+                        "private": {"type": "boolean", "description": "default true"}},
+         "required": ["repo"]},
+        lambda repo, name="", private=True: _gh_create_repo(repo, name, private))
+
     reg.register(
         "github_list_repos", "List the user's repositories on GitHub (name, visibility, last push).",
         {"type": "object", "properties": {}},
@@ -400,6 +430,53 @@ def _fs_edit(path: str, find: str, replace: str) -> str:
         return "error: exact text not found in file — read the file and retry with a verbatim snippet"
     p.write_text(text.replace(find, replace), encoding="utf-8")
     return f"replaced {n} occurrence(s) in {p.name}"
+
+
+def _scaffold_project(folder: str, files: list) -> str:
+    if not isinstance(files, list) or not files:
+        return "error: files must be a non-empty array of {path, content}"
+    root = _allowed_path(folder)
+    written = []
+    for f in files:
+        if not isinstance(f, dict) or "path" not in f or "content" not in f:
+            return f"error: bad file entry {str(f)[:80]} — need {{path, content}}"
+        p = (root / f["path"]).resolve()
+        if not p.is_relative_to(root):  # no ../ escapes out of the project folder
+            return f"error: path escapes project folder: {f['path']}"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f["content"], encoding="utf-8")
+        written.append(f["path"])
+    return f"scaffolded {len(written)} files in {root}:\n" + "\n".join(written)
+
+
+def _gh_create_repo(repo: str, name: str = "", private: bool = True) -> str:
+    """Create the remote via gh CLI (its keyring auth has repo scope), then push
+    with an inline token — the Windows credential manager is known to hang."""
+    p = _allowed_path(repo)
+    if not (p / ".git").exists():
+        return f"error: {p} is not a git repository — git_init and git_commit first"
+    name = name or p.name.replace(" ", "-")
+    vis = "--private" if private else "--public"
+    r = subprocess.run(["gh", "repo", "create", name, vis], capture_output=True, text=True, timeout=60)
+    if r.returncode != 0 and "already exists" not in (r.stdout + r.stderr):
+        return f"error: gh repo create failed: {(r.stdout + r.stderr).strip()[:300]}"
+    login = subprocess.run(["gh", "api", "user", "-q", ".login"],
+                           capture_output=True, text=True, timeout=30).stdout.strip()
+    token = subprocess.run(["gh", "auth", "token"],
+                           capture_output=True, text=True, timeout=30).stdout.strip()
+    if not login or not token:
+        return "error: gh CLI not authenticated — run 'gh auth login' once"
+    subprocess.run(["git", "-C", str(p), "remote", "remove", "origin"], capture_output=True, timeout=15)
+    subprocess.run(["git", "-C", str(p), "remote", "add", "origin",
+                    f"https://github.com/{login}/{name}.git"], capture_output=True, timeout=15)
+    branch = subprocess.run(["git", "-C", str(p), "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True, timeout=15).stdout.strip() or "main"
+    push = subprocess.run(["git", "-C", str(p), "push", "-u",
+                           f"https://{token}@github.com/{login}/{name}.git", branch],
+                          capture_output=True, text=True, timeout=120)
+    if push.returncode != 0:
+        return f"error: push failed: {(push.stdout + push.stderr).replace(token, '***')[:300]}"
+    return f"created and pushed: https://github.com/{login}/{name} ({'private' if private else 'public'})"
 
 
 def _git_list_repos() -> list[dict] | str:
