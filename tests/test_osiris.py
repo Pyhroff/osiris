@@ -108,7 +108,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 32
+    assert len(specs) == 36
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -137,8 +137,28 @@ def test_fs_allowed_roots(reg, tmp_path):
     assert "outside allowed" in reg.execute("fs_read", {"path": str(outside)})
 
 
+def test_fs_write_and_edit_in_allowed_roots(reg, tmp_path):
+    out = reg.execute("fs_write", {"path": str(tmp_path / "p" / "x.py"), "content": "a = 1\nb = 2\n"})
+    assert "wrote" in out
+    assert "replaced 1" in reg.execute(
+        "fs_edit", {"path": str(tmp_path / "p" / "x.py"), "find": "a = 1", "replace": "a = 99"})
+    assert "a = 99" in (tmp_path / "p" / "x.py").read_text()
+    assert "not found" in reg.execute(
+        "fs_edit", {"path": str(tmp_path / "p" / "x.py"), "find": "zzz", "replace": "y"})
+    assert "outside allowed" in reg.execute(
+        "fs_write", {"path": str(tmp_path.parent / "esc.py"), "content": "x"})
+
+
+def test_git_list_repos_finds_repos(reg, tmp_path):
+    (tmp_path / "myrepo" / ".git").mkdir(parents=True)
+    (tmp_path / "notarepo").mkdir()
+    out = reg.execute("git_list_repos", {})
+    assert "myrepo" in out and "notarepo" not in out
+
+
 def test_graceful_errors_without_credentials(reg):
     assert "GITHUB_TOKEN not set" in reg.execute("github_list_issues", {"repo": "a/b"})
+    assert "GITHUB_TOKEN not set" in reg.execute("github_list_repos", {})
     assert "DISCORD_WEBHOOK_URL not set" in reg.execute("discord_send", {"message": "x"})
     assert "credentials.json missing" in reg.execute("gmail_search", {"query": "x"})
     assert "credentials.json missing" in reg.execute(

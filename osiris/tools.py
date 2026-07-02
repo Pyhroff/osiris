@@ -173,7 +173,30 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
          "required": ["pattern"]},
         lambda pattern, path="": _fs_find(pattern, path))
 
+    reg.register(
+        "fs_write", "Create or overwrite a text file in the user's project folders. "
+                    "ALWAYS show the user the intended content and get their OK in conversation first.",
+        {"type": "object",
+         "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+         "required": ["path", "content"]},
+        lambda path, content: _fs_write(path, content))
+
+    reg.register(
+        "fs_edit", "Find-and-replace an exact text snippet in a project file. "
+                   "ALWAYS show the user the exact change and get their OK in conversation first.",
+        {"type": "object",
+         "properties": {"path": {"type": "string"},
+                        "find": {"type": "string", "description": "exact text to replace"},
+                        "replace": {"type": "string"}},
+         "required": ["path", "find", "replace"]},
+        lambda path, find, replace: _fs_edit(path, find, replace))
+
     # -- local git (repos under allowed roots) -------------------------------------
+    reg.register(
+        "git_list_repos", "List all local git repositories in the user's project folders.",
+        {"type": "object", "properties": {}},
+        lambda: _git_list_repos())
+
     reg.register(
         "git_status", "Show git status of a local repository folder.",
         {"type": "object", "properties": {"repo": {"type": "string", "description": "repo folder, e.g. 'PromptStrike'"}},
@@ -213,6 +236,11 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         lambda repo: _git_sync_check(repo))
 
     # -- github ----------------------------------------------------------------
+    reg.register(
+        "github_list_repos", "List the user's repositories on GitHub (name, visibility, last push).",
+        {"type": "object", "properties": {}},
+        lambda: _gh_list_repos())
+
     reg.register(
         "github_list_issues", "List open issues on a GitHub repo (format: owner/repo).",
         {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]},
@@ -347,6 +375,43 @@ def _fs_find(pattern: str, path: str = "") -> list[str] | str:
         if len(hits) >= 50:
             break
     return hits or "no matches"
+
+
+def _fs_write(path: str, content: str) -> str:
+    p = _allowed_path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(content, encoding="utf-8")
+    return f"wrote {len(content)} chars to {p}"
+
+
+def _fs_edit(path: str, find: str, replace: str) -> str:
+    p = _allowed_path(path)
+    text = p.read_text(encoding="utf-8")
+    n = text.count(find)
+    if n == 0:
+        return "error: exact text not found in file — read the file and retry with a verbatim snippet"
+    p.write_text(text.replace(find, replace), encoding="utf-8")
+    return f"replaced {n} occurrence(s) in {p.name}"
+
+
+def _git_list_repos() -> list[str] | str:
+    repos = []
+    for root in config.ALLOWED_DIRS:
+        try:
+            for child in sorted(root.iterdir()):
+                if child.is_dir() and (child / ".git").exists():
+                    repos.append(str(child))
+        except OSError:
+            continue
+    return repos or "no git repositories found in the allowed folders"
+
+
+def _gh_list_repos() -> list[dict]:
+    r = requests.get("https://api.github.com/user/repos", headers=_gh_headers(),
+                     params={"per_page": 100, "sort": "pushed"}, timeout=15)
+    r.raise_for_status()
+    return [{"name": x["full_name"], "private": x["private"],
+             "last_push": (x.get("pushed_at") or "")[:10]} for x in r.json()]
 
 
 def _discord_send(message: str) -> str:

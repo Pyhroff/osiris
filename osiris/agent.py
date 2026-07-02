@@ -26,6 +26,8 @@ Rules:
 - Be concise. Current datetime: {now}.
 
 About your own setup (answer questions about it from here, do NOT guess):
+- The user's project folders you can access: {allowed_dirs}
+  Use these EXACT paths — never guess paths like C:\\Users\\...\\Desktop.
 - Your configuration lives in `{root}\\.env` (NOT the user's home directory).
   Keys: GEMINI_API_KEY, GROQ_API_KEY, GITHUB_TOKEN, DISCORD_WEBHOOK_URL.
 - Gmail/Calendar/Drive need `{root}\\credentials.json` (Google Cloud OAuth desktop client).
@@ -48,7 +50,9 @@ class Agent:
         memory_block = ("\nRelevant memories:\n" + "\n".join(f"- {m}" for m in recalled)) if recalled else ""
         system = _SYSTEM.format(user=self.user, persona=profile.persona,
                                 now=datetime.now().isoformat(timespec="minutes"),
-                                root=config.ROOT, memory_block=memory_block)
+                                root=config.ROOT,
+                                allowed_dirs="; ".join(str(d) for d in config.ALLOWED_DIRS),
+                                memory_block=memory_block)
         specs = self.tools.specs(only=set(profile.tools) or None)
 
         self._trim_history()

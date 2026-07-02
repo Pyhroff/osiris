@@ -24,11 +24,16 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
     AgentProfile(
         "coding",
         "You are the Coding agent: work with local git repos (status/diff/commit/push), browse "
-        "project folders, triage GitHub issues, keep engineering notes. Before git_commit, show "
-        "the status and proposed message; before git_push, get explicit confirmation.",
-        _MEMORY + ["github_list_issues", "github_create_issue",
+        "and MODIFY project files, triage GitHub issues, keep engineering notes. "
+        "To explain a repo: fs_list it, read its README and key source files with fs_read, then "
+        "summarize the architecture — don't just report git metadata. "
+        "To find repos: use git_list_repos (local) or github_list_repos (GitHub). "
+        "Before fs_write/fs_edit, show the user the exact change and get their OK. Before "
+        "git_commit, show status and proposed message; before git_push, get explicit confirmation.",
+        _MEMORY + ["github_list_issues", "github_create_issue", "github_list_repos",
                    "git_status", "git_diff", "git_log", "git_commit", "git_push",
-                   "git_sync_check", "fs_list", "fs_read", "fs_find",
+                   "git_sync_check", "git_list_repos",
+                   "fs_list", "fs_read", "fs_find", "fs_write", "fs_edit",
                    "write_file", "read_file", "list_files"],
         ["github", "repo", "issue", "bug", "code", "commit", "push", "diff",
          "git ", "pr ", "pull request", "folder", "desktop", "sync", "version"]),
