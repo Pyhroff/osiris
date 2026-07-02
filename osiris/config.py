@@ -9,18 +9,32 @@ load_dotenv(ROOT / ".env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+GITHUB_MODELS_TOKEN = os.getenv("GITHUB_MODELS_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
-# Model router: providers tried in this order, failing over on any error
-PROVIDER_CHAIN = os.getenv("OSIRIS_PROVIDERS", "gemini,groq,ollama,openai")
+# Model router: providers tried in this order, failing over on any error.
+# Unconfigured ones are skipped, so listing them all costs nothing.
+PROVIDER_CHAIN = os.getenv(
+    "OSIRIS_PROVIDERS", "gemini,groq,cerebras,mistral,openrouter,github,ollama,openai")
 
 CHAT_MODEL = os.getenv("OSIRIS_CHAT_MODEL", "gemini-2.5-flash")
-GROQ_MODEL = os.getenv("OSIRIS_GROQ_MODEL", "llama-3.3-70b-versatile")
-OLLAMA_MODEL = os.getenv("OSIRIS_OLLAMA_MODEL", "llama3.2")  # prefix-matched against pulled models
+GROQ_MODEL = os.getenv("OSIRIS_GROQ_MODEL", "openai/gpt-oss-120b")  # far better at tools than llama-3.3
+CEREBRAS_MODEL = os.getenv("OSIRIS_CEREBRAS_MODEL", "llama-3.3-70b")
+MISTRAL_MODEL = os.getenv("OSIRIS_MISTRAL_MODEL", "mistral-small-latest")
+OPENROUTER_MODEL = os.getenv("OSIRIS_OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+GITHUB_MODELS_MODEL = os.getenv("OSIRIS_GITHUB_MODELS_MODEL", "gpt-4o-mini")
+OLLAMA_MODEL = os.getenv("OSIRIS_OLLAMA_MODEL", "")  # empty = auto-rank best pulled model
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OPENAI_MODEL = os.getenv("OSIRIS_OPENAI_MODEL", "gpt-4o-mini")
+
+# Show provider failover chatter in the terminal. Off = clean output; the
+# [provider · model] tag under each reply still shows who answered.
+DEBUG = os.getenv("OSIRIS_DEBUG", "").lower() in ("1", "on", "true")
 
 EMBED_MODEL = os.getenv("OSIRIS_EMBED_MODEL", "gemini-embedding-001")
 EMBED_DIM = 768  # keep vectors small; free tier is generous but not infinite

@@ -44,7 +44,7 @@ def _run_reflection(llm, memory, agent):
 
 def main():
     try:
-        llm = ModelRouter()
+        llm = ModelRouter(verbose=config.DEBUG)
     except RuntimeError as e:
         sys.exit(str(e))
 

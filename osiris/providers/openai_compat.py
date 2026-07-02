@@ -29,6 +29,25 @@ def _rescue_pseudo_calls(out: LLMResponse) -> LLMResponse:
     return out
 
 
+def _rescue_json_call(out: LLMResponse) -> LLMResponse:
+    """Small local models sometimes reply with a bare JSON tool call as text,
+    e.g. {"name": "recall", "parameters": {...}}. Convert it if well-formed."""
+    try:
+        obj = json.loads(out.text)
+    except json.JSONDecodeError:
+        return out
+    if isinstance(obj, dict) and isinstance(obj.get("name"), str):
+        args = obj.get("parameters") or obj.get("arguments") or {}
+        if isinstance(args, dict):
+            out.tool_calls.append(ToolCall(name=obj["name"], args=args))
+            out.text = ""
+    return out
+
+
+# a 400 here is usually the model flubbing tool-call syntax once — retryable
+_RETRYABLE_400 = ("tool call validation failed", "failed_generation", "Failed to call a function")
+
+
 def _to_openai_messages(messages: list[dict], system: str) -> list[dict]:
     out = [{"role": "system", "content": system}] if system else []
     counter = 0        # deterministic ids for calls that came from id-less providers (Gemini)
@@ -71,12 +90,16 @@ class OpenAICompatLLM(BaseLLM):
         if tools:
             payload["tools"] = [{"type": "function", "function": t} for t in tools]
 
-        r = requests.post(
-            f"{self.base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json=payload, timeout=180)  # generous: local models load cold
-        if r.status_code >= 400:  # surface the API's actual complaint, not just the code
-            raise requests.HTTPError(f"{r.status_code}: {r.text[:300]}")
+        for attempt in (1, 2):
+            r = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=payload, timeout=180)  # generous: local models load cold
+            if r.status_code == 400 and attempt == 1 and any(s in r.text for s in _RETRYABLE_400):
+                continue  # model garbled a tool call; generation is stochastic — one more try
+            if r.status_code >= 400:  # surface the API's actual complaint, not just the code
+                raise requests.HTTPError(f"{r.status_code}: {r.text[:300]}")
+            break
         msg = r.json()["choices"][0]["message"]
 
         out = LLMResponse(text=msg.get("content") or "")
@@ -89,6 +112,8 @@ class OpenAICompatLLM(BaseLLM):
             out.tool_calls.append(ToolCall(name=tc["function"]["name"], args=args, id=tc.get("id", "")))
         if "<function=" in out.text:
             out = _rescue_pseudo_calls(out)
+        if not out.tool_calls and out.text.lstrip().startswith("{") and '"name"' in out.text:
+            out = _rescue_json_call(out)
         return out
 
     def embed(self, text: str) -> list[float]:

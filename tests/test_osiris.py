@@ -61,13 +61,15 @@ def reg(mem, tmp_path, monkeypatch):
 
 # -- memory ----------------------------------------------------------------
 
-def test_memory_store_and_recall(mem):
+def test_memory_store_and_recall(mem, monkeypatch):
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)  # user .env may say off
     mem.remember("user targets IBM Quantum roles in 2027")
     hits = mem.recall("what career is the user targeting", min_score=0.0)
     assert hits and "IBM Quantum" in hits[0]
 
 
-def test_recall_backfills_null_embeddings(mem):
+def test_recall_backfills_null_embeddings(mem, monkeypatch):
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)
     mem.db.execute("INSERT INTO memories (text, kind, embedding, created_at) VALUES (?,?,?,?)",
                    ("loves the terminal aesthetic", "fact", None, "2026-01-01"))
     mem.db.commit()
@@ -76,7 +78,8 @@ def test_recall_backfills_null_embeddings(mem):
     assert mem.db.execute("SELECT embedding FROM memories").fetchone()[0] is not None
 
 
-def test_recall_skips_mismatched_dimensions(mem):
+def test_recall_skips_mismatched_dimensions(mem, monkeypatch):
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)
     mem.db.execute("INSERT INTO memories (text, kind, embedding, created_at) VALUES (?,?,?,?)",
                    ("old-model memory", "fact", json.dumps([1.0] * 8), "2026-01-01"))
     mem.db.commit()
@@ -320,6 +323,37 @@ def test_openai_ids_match_for_idless_tool_calls():
     ids = [c["id"] for c in out[0]["tool_calls"]]
     assert ids == [out[1]["tool_call_id"], out[2]["tool_call_id"]]
     assert out[0]["content"] == ""
+
+
+def test_ollama_model_ranking():
+    from osiris.providers import _pick_ollama
+    assert _pick_ollama(["gemma3:4b", "llama3.2:latest", "qwen3:8b"]) == "qwen3:8b"
+    assert _pick_ollama(["gemma3:4b", "llama3.2:latest"]) == "llama3.2:latest"
+    assert _pick_ollama(["gemma3:4b"]) == "gemma3:4b"  # last resort, better than nothing
+    assert _pick_ollama([]) is None
+
+
+def test_extra_providers_join_chain_when_keyed(monkeypatch):
+    from osiris.providers import build_chain
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(config, "GROQ_API_KEY", "k")
+    monkeypatch.setattr(config, "CEREBRAS_API_KEY", "k")
+    monkeypatch.setattr(config, "MISTRAL_API_KEY", "k")
+    monkeypatch.setattr(config, "OPENROUTER_API_KEY", "k")
+    monkeypatch.setattr(config, "GITHUB_MODELS_TOKEN", "k")
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "")
+    monkeypatch.setattr(config, "PROVIDER_CHAIN", "gemini,groq,cerebras,mistral,openrouter,github,openai")
+    assert [p.name for p in build_chain()] == ["groq", "cerebras", "mistral", "openrouter", "github"]
+
+
+def test_bare_json_tool_call_rescued():
+    from osiris.providers.openai_compat import _rescue_json_call
+    out = LLMResponse(text='{"name": "recall", "parameters": {"query": "user prefs"}}')
+    out = _rescue_json_call(out)
+    assert out.tool_calls[0].name == "recall" and out.tool_calls[0].args == {"query": "user prefs"}
+    assert out.text == ""
+    ok = _rescue_json_call(LLMResponse(text="just a normal { curly } answer"))
+    assert ok.text and not ok.tool_calls  # non-JSON text untouched
 
 
 def test_pseudo_function_calls_rescued_from_text():

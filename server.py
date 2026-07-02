@@ -21,7 +21,7 @@ from osiris.tools import build_registry
 REFLECT_EVERY = 8  # user turns between automatic background reflections
 
 try:
-    llm = ModelRouter()
+    llm = ModelRouter(verbose=config.DEBUG)
 except RuntimeError as e:
     sys.exit(str(e))
 
