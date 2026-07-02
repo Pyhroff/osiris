@@ -1,8 +1,13 @@
-"""OSIRIS background daemon — fires Windows toast notifications when tasks come due.
+"""OSIRIS background daemon — task reminders + proactive routines.
 
-Run in a second terminal:  python daemon.py
-(Only reads/writes osiris.db — no LLM calls, so it costs zero API quota.)
+Run in a second terminal:  python daemon.py  (or `osiris daemon`)
+
+- Reminders cost zero API quota (pure DB polling).
+- Routines (routines.json) run the full agent at their scheduled time once a
+  day and deliver the result as a toast + Discord message + a markdown file
+  in workspace/briefings/. The LLM is only built when a routine fires.
 """
+import json
 import time
 from datetime import datetime
 
@@ -10,37 +15,96 @@ from osiris import config
 from osiris.memory import Memory
 
 POLL_SECONDS = 60
+ROUTINES_FILE = config.ROOT / "routines.json"
+BRIEFINGS_DIR = config.WORKSPACE / "briefings"
 
 
 class _NoLLM:
-    """Daemon never embeds or chats — memory falls back to keyword search."""
+    """Reminder path never embeds or chats — memory falls back to keyword search."""
     def embed(self, text):
-        raise RuntimeError("daemon does not use the LLM")
+        raise RuntimeError("daemon does not use the LLM for reminders")
 
 
 def notify(title: str, message: str):
     try:
         from plyer import notification
-        notification.notify(title=title, message=message, app_name="OSIRIS", timeout=10)
+        notification.notify(title=title, message=message[:250], app_name="OSIRIS", timeout=10)
     except Exception:
-        print(f"\a[{datetime.now():%H:%M}] {title}: {message}")  # console fallback
-    if config.DISCORD_WEBHOOK_URL:  # mirror to Discord so reminders reach your phone
+        print(f"\a[{datetime.now():%H:%M}] {title}: {message[:250]}")  # console fallback
+    if config.DISCORD_WEBHOOK_URL:  # mirror to Discord so it reaches your phone
         try:
             import requests
             requests.post(config.DISCORD_WEBHOOK_URL,
-                          json={"content": f"⏰ **{title}** — {message}"}, timeout=10)
+                          json={"content": f"**{title}**\n{message[:1900]}"}, timeout=10)
         except Exception as e:
             print(f"[discord notify failed: {e}]")
 
 
+def load_routines() -> list[dict]:
+    if not ROUTINES_FILE.exists():
+        return []
+    try:
+        routines = json.loads(ROUTINES_FILE.read_text(encoding="utf-8"))
+        return [r for r in routines if r.get("name") and r.get("time") and r.get("prompt")]
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[routines.json unreadable: {e}]")
+        return []
+
+
+def routine_due(routine: dict, last_run: str, now: datetime) -> bool:
+    """Due when its HH:MM has passed today and it hasn't run today yet."""
+    if last_run.startswith(now.strftime("%Y-%m-%d")):
+        return False
+    return now.strftime("%H:%M") >= routine["time"]
+
+
+_agent = None  # built on first routine fire, then reused
+
+
+def run_routine(routine: dict, memory: Memory):
+    global _agent
+    if _agent is None:  # lazy: idle daemon costs zero API quota
+        from osiris.agent import Agent
+        from osiris.planner import Planner
+        from osiris.router import ModelRouter
+        from osiris.tools import build_registry
+        llm = ModelRouter(verbose=False)
+        mem = Memory(llm)  # LLM-backed memory for the agent (separate from reminder poller)
+        _agent = Agent(llm, mem, build_registry(mem, Planner(llm, mem)))
+    result = _agent.run(routine["prompt"])
+    _agent.history.clear()  # routines are independent; don't let them pile up context
+
+    BRIEFINGS_DIR.mkdir(parents=True, exist_ok=True)
+    out = BRIEFINGS_DIR / f"{datetime.now():%Y-%m-%d}-{routine['name']}.md"
+    out.write_text(f"# {routine['name']} — {datetime.now():%Y-%m-%d %H:%M}\n\n{result}\n",
+                   encoding="utf-8")
+    notify(f"OSIRIS · {routine['name']}", result)
+    print(f"[{datetime.now():%H:%M}] routine '{routine['name']}' done -> {out.name}")
+
+
 def main():
     memory = Memory(_NoLLM(), db_path=config.DB_PATH)
-    print(f"OSIRIS daemon watching {config.DB_PATH} (poll every {POLL_SECONDS}s, Ctrl+C to stop)")
+    routines = load_routines()
+    print(f"OSIRIS daemon: {len(routines)} routine(s), reminders every {POLL_SECONDS}s. Ctrl+C to stop.")
+    for r in routines:
+        print(f"  · {r['name']} at {r['time']} daily")
+
     while True:
         for task in memory.due_unnotified():
             notify("OSIRIS reminder", task["description"])
             memory.mark_notified(task["id"])
             print(f"[{datetime.now():%H:%M}] notified: #{task['id']} {task['description']}")
+
+        now = datetime.now()
+        for routine in routines:
+            if routine_due(routine, memory.routine_last_run(routine["name"]), now):
+                memory.mark_routine_run(routine["name"])  # mark first: a crash must not retry-spam quota
+                try:
+                    run_routine(routine, memory)
+                except Exception as e:
+                    print(f"[routine '{routine['name']}' failed: {e}]")
+                    notify(f"OSIRIS · {routine['name']} failed", str(e)[:200])
+
         time.sleep(POLL_SECONDS)
 
 

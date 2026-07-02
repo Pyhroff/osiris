@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS milestones (
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY, description TEXT NOT NULL, due TEXT NOT NULL,
     done INTEGER DEFAULT 0, notified INTEGER DEFAULT 0, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS routine_runs (
+    name TEXT PRIMARY KEY, last_run TEXT NOT NULL);
 """
 
 
@@ -157,6 +159,18 @@ class Memory:
 
     def mark_notified(self, task_id: int):
         self.db.execute("UPDATE tasks SET notified=1 WHERE id=?", (task_id,))
+        self.db.commit()
+
+    # -- proactive routines ------------------------------------------------------
+    def routine_last_run(self, name: str) -> str:
+        row = self.db.execute("SELECT last_run FROM routine_runs WHERE name=?", (name,)).fetchone()
+        return row["last_run"] if row else ""
+
+    def mark_routine_run(self, name: str):
+        self.db.execute(
+            "INSERT INTO routine_runs (name, last_run) VALUES (?,?) "
+            "ON CONFLICT(name) DO UPDATE SET last_run=excluded.last_run",
+            (name, datetime.now().isoformat(timespec="seconds")))
         self.db.commit()
 
     def complete_task(self, task_id: int) -> bool:

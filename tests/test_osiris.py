@@ -321,6 +321,26 @@ def test_reflection_survives_malformed_output(mem):
     assert reflect(llm, mem, _history()) == []
 
 
+# -- daemon routines ----------------------------------------------------------------
+
+def test_routine_due_logic():
+    from datetime import datetime
+    from daemon import routine_due
+    r = {"name": "brief", "time": "08:30", "prompt": "x"}
+    morning = datetime(2026, 7, 3, 9, 0)
+    assert routine_due(r, "", morning)                            # never ran, time passed
+    assert not routine_due(r, "2026-07-03T08:31:00", morning)     # already ran today
+    assert routine_due(r, "2026-07-02T08:31:00", morning)         # ran yesterday
+    assert not routine_due(r, "", datetime(2026, 7, 3, 8, 0))     # too early
+
+
+def test_routine_run_marking(mem):
+    assert mem.routine_last_run("brief") == ""
+    mem.mark_routine_run("brief")
+    assert mem.routine_last_run("brief").startswith("20")
+    mem.mark_routine_run("brief")  # upsert, no crash
+
+
 # -- provider message conversion ----------------------------------------------------------------
 
 def test_openai_ids_match_for_idless_tool_calls():
