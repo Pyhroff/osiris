@@ -16,6 +16,7 @@ GITHUB_MODELS_TOKEN = os.getenv("GITHUB_MODELS_TOKEN", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")  # free, no card: tavily.com
 
 # Model router: providers tried in this order, failing over on any error.
 # Unconfigured ones are skipped, so listing them all costs nothing.
@@ -56,6 +57,15 @@ ALLOWED_DIRS = ([Path(p).resolve() for p in os.getenv("OSIRIS_ALLOWED_DIRS", "")
 # Commit identity for git_commit (falls back to your global git config if unset)
 GIT_NAME = os.getenv("OSIRIS_GIT_NAME", "")
 GIT_EMAIL = os.getenv("OSIRIS_GIT_EMAIL", "")
+
+# Free-text identity/context injected into every agent's system prompt (not just
+# recalled memories, which only surface probabilistically). Empty = skipped.
+USER_PROFILE = os.getenv("OSIRIS_USER_PROFILE", "")
+
+# Hosts/IPs the redteam/blueteam agent's run_recon tool may target, beyond
+# localhost/private IPs (always allowed). Only add targets you have explicit
+# authorization to test. Comma-separated, e.g. OSIRIS_AUTHORIZED_TARGETS=lab.example.com
+AUTHORIZED_TARGETS = os.getenv("OSIRIS_AUTHORIZED_TARGETS", "")
 
 MAX_AGENT_STEPS = 12  # hard cap on tool-call loops per user turn
 MAX_HISTORY = 60      # keep sessions from growing unbounded (trimmed at turn boundaries)

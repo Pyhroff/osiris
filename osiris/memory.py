@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     done INTEGER DEFAULT 0, notified INTEGER DEFAULT 0, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS routine_runs (
     name TEXT PRIMARY KEY, last_run TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS applications (
+    id INTEGER PRIMARY KEY, company TEXT NOT NULL, role TEXT, contact_email TEXT,
+    status TEXT DEFAULT 'applied', applied_date TEXT NOT NULL, notes TEXT,
+    created_at TEXT NOT NULL);
 """
 
 
@@ -175,5 +179,26 @@ class Memory:
 
     def complete_task(self, task_id: int) -> bool:
         cur = self.db.execute("UPDATE tasks SET done=1 WHERE id=?", (task_id,))
+        self.db.commit()
+        return cur.rowcount > 0
+
+    # -- job/internship applications --------------------------------------------
+    def add_application(self, company: str, role: str = "", contact_email: str = "",
+                        notes: str = "") -> int:
+        cur = self.db.execute(
+            "INSERT INTO applications (company, role, contact_email, applied_date, notes, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (company, role, contact_email, datetime.now().date().isoformat(), notes,
+             datetime.now().isoformat(timespec="seconds")))
+        self.db.commit()
+        return cur.lastrowid
+
+    def list_applications(self, status: str = "") -> list[dict]:
+        q = "SELECT * FROM applications" + (" WHERE status=?" if status else "") + " ORDER BY applied_date DESC"
+        params = (status,) if status else ()
+        return [dict(r) for r in self.db.execute(q, params).fetchall()]
+
+    def update_application_status(self, application_id: int, status: str) -> bool:
+        cur = self.db.execute("UPDATE applications SET status=? WHERE id=?", (status, application_id))
         self.db.commit()
         return cur.rowcount > 0

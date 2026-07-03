@@ -111,7 +111,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 41
+    assert len(specs) == 48
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -191,6 +191,111 @@ def test_github_create_repo_requires_local_repo(reg, tmp_path):
     (tmp_path / "notrepo").mkdir()
     out = reg.execute("github_create_repo", {"repo": str(tmp_path / "notrepo")})
     assert "not a git repository" in out
+
+
+def test_run_recon_blocks_unauthorized_targets(reg, monkeypatch):
+    monkeypatch.setattr(config, "AUTHORIZED_TARGETS", "")
+    out = reg.execute("run_recon", {"tool": "nmap", "target": "8.8.8.8"})  # public IP, not private/authorized
+    assert "not localhost/private" in out and "OSIRIS_AUTHORIZED_TARGETS" in out
+
+
+def test_run_recon_allows_localhost_and_private_ips(reg):
+    out = reg.execute("run_recon", {"tool": "ping", "target": "127.0.0.1", "flags": ["-n"]})
+    assert "not localhost/private" not in out  # got far enough to actually try running it
+
+
+def test_run_recon_rejects_unknown_tool(reg):
+    out = reg.execute("run_recon", {"tool": "sqlmap", "target": "127.0.0.1"})
+    assert "not in allowlist" in out
+
+
+def test_run_recon_rejects_unsafe_flags(reg, monkeypatch):
+    monkeypatch.setattr(config, "AUTHORIZED_TARGETS", "lab.internal")
+    out = reg.execute("run_recon", {"tool": "nmap", "target": "lab.internal",
+                                    "flags": ["--script", "vuln"]})
+    assert "not allowed" in out
+
+
+def test_run_recon_honors_authorized_targets_env(reg, monkeypatch):
+    monkeypatch.setattr(config, "AUTHORIZED_TARGETS", "lab.internal, other.test")
+    out = reg.execute("run_recon", {"tool": "whois", "target": "lab.internal"})
+    assert "not localhost/private" not in out
+
+
+@pytest.mark.skipif(subprocess.run(["pytest", "--version"], capture_output=True).returncode != 0,
+                    reason="pytest not on PATH")
+def test_run_project_command_executes_pytest(reg, tmp_path):
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "proj" / "test_ok.py").write_text("def test_pass():\n    assert True\n", encoding="utf-8")
+    out = reg.execute("run_project_command", {"repo": str(tmp_path / "proj"), "command": "pytest"})
+    assert "exit code 0" in out and "1 passed" in out
+
+
+def test_run_project_command_rejects_unknown_command(reg, tmp_path):
+    out = reg.execute("run_project_command", {"repo": str(tmp_path), "command": "rm-rf"})
+    assert "not in allowlist" in out
+
+
+def test_run_project_command_rejects_unsafe_extra_args(reg, tmp_path):
+    out = reg.execute("run_project_command",
+                      {"repo": str(tmp_path), "command": "pytest", "extra_args": ["; rm -rf /"]})
+    assert "disallowed characters" in out
+
+
+def test_cve_lookup_by_id(reg, monkeypatch):
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"vulnerabilities": [{"cve": {
+                "id": "CVE-2021-44228", "published": "2021-12-10T10:00:00.000",
+                "descriptions": [{"lang": "en", "value": "Log4j RCE via JNDI lookup."}],
+                "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 10.0}}]},
+            }}]}
+    import osiris.tools as tools_mod
+    monkeypatch.setattr(tools_mod.requests, "get", lambda *a, **k: FakeResp())
+    out = json.loads(reg.execute("cve_lookup", {"query": "CVE-2021-44228"}))
+    assert out[0]["id"] == "CVE-2021-44228" and out[0]["cvss"] == 10.0
+
+
+def test_cve_lookup_network_failure_is_graceful(reg, monkeypatch):
+    import osiris.tools as tools_mod
+    def boom(*a, **k):
+        raise tools_mod.requests.RequestException("timeout")
+    monkeypatch.setattr(tools_mod.requests, "get", boom)
+    out = reg.execute("cve_lookup", {"query": "log4j"})
+    assert "NVD lookup failed" in out
+
+
+def test_web_search_requires_api_key(reg, monkeypatch):
+    monkeypatch.setattr(config, "TAVILY_API_KEY", "")
+    out = reg.execute("web_search", {"query": "fifa world cup 2026 schedule"})
+    assert "TAVILY_API_KEY not set" in out
+
+
+def test_web_search_returns_parsed_results(reg, monkeypatch):
+    monkeypatch.setattr(config, "TAVILY_API_KEY", "fake-key")
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"results": [{"title": "FIFA 2026", "url": "https://fifa.com/2026",
+                                 "content": "The 2026 World Cup schedule."}]}
+    import osiris.tools as tools_mod
+    monkeypatch.setattr(tools_mod.requests, "post", lambda *a, **k: FakeResp())
+    out = json.loads(reg.execute("web_search", {"query": "fifa world cup 2026"}))
+    assert out[0]["title"] == "FIFA 2026" and out[0]["url"] == "https://fifa.com/2026"
+
+
+def test_application_tracking_lifecycle(reg):
+    out = reg.execute("track_application",
+                      {"company": "Cyberops", "role": "VAPT Intern", "contact_email": "hr@cyberops.test"})
+    assert "logged application #" in out
+    app_id = int(out.split("#")[1])
+    apps = json.loads(reg.execute("list_applications", {}))
+    assert any(a["id"] == app_id and a["company"] == "Cyberops" for a in apps)
+    assert reg.execute("update_application_status", {"application_id": app_id, "status": "interview"}) == "updated"
+    apps = json.loads(reg.execute("list_applications", {"status": "interview"}))
+    assert apps[0]["status"] == "interview"
+    assert reg.execute("update_application_status", {"application_id": 99999, "status": "x"}) == "error: no such application"
 
 
 def test_graceful_errors_without_credentials(reg):
@@ -283,6 +388,10 @@ def test_agent_routing():
     assert pick_agent("build me a FastAPI REST API with tests").key == "architect"
     assert pick_agent("build me a react app and push to github").key == "architect"
     assert pick_agent("design a CLI tool with github integration").key == "architect"
+    # domain security agents win over architect's broad "design a" on cyber-specific phrasing
+    assert pick_agent("help me plan a bug hunt for this pentest").key == "redteam"
+    assert pick_agent("draft an incident response playbook").key == "blueteam"
+    assert pick_agent("design an adversarial jailbreak test suite for my llm").key == "aisec"
 
 
 def test_profiles_reference_real_tools(reg):
@@ -363,6 +472,15 @@ def test_routine_due_logic():
     assert not routine_due(r, "", datetime(2026, 7, 3, 8, 0))     # too early
 
 
+def test_routine_due_weekly_cadence():
+    from datetime import datetime
+    from daemon import routine_due
+    weekly = {"name": "digest", "time": "09:00", "days": ["Sun"], "prompt": "x"}
+    assert not routine_due(weekly, "", datetime(2026, 7, 3, 10, 0))   # Friday, not Sunday
+    assert routine_due(weekly, "", datetime(2026, 7, 5, 10, 0))       # Sunday, time passed
+    assert not routine_due(weekly, "2026-07-05T09:01:00", datetime(2026, 7, 5, 10, 0))  # already ran
+
+
 def test_routine_run_marking(mem):
     assert mem.routine_last_run("brief") == ""
     mem.mark_routine_run("brief")
@@ -441,6 +559,45 @@ def test_null_tool_args_do_not_crash(mem, reg):
     seen = []
     reply = agent.run("list my tasks", on_tool=lambda n, a: seen.append(a.items() is not None))
     assert reply == "done" and seen == [True]
+
+
+def test_markdown_stripped_from_replies(mem, reg):
+    """No OSIRIS interface renders markdown — a provider that ignores the
+    plain-text instruction (Groq's oss-120b does this in practice) must still
+    not leak literal ** or # to the user."""
+    class MarkdownLLM(BaseLLM):
+        name = "markdown"
+        def chat(self, messages, system="", tools=None):
+            return LLMResponse(text="# Profile\n**Name:** Praising\n__Role:__ student\n*Goal*: SOC analyst")
+        def embed(self, text):
+            return StubLLM().embed(text)
+
+    agent = Agent(MarkdownLLM(), mem, reg)
+    reply = agent.run("tell me about myself")
+    assert "**" not in reply and "__" not in reply and not reply.startswith("#")
+    assert "*" not in reply
+    assert "Name: Praising" in reply and "Role: student" in reply and "Goal: SOC analyst" in reply
+
+
+def test_circuit_breaker_interrupts_repeated_tool_thrashing(mem, reg):
+    """A weak model that keeps retrying the same failing tool call (observed live
+    with Mistral thrashing on run_project_command) should get a corrective nudge
+    injected into history rather than silently burning the whole step budget."""
+    class ThrashingLLM(BaseLLM):
+        name = "thrash"
+        def chat(self, messages, system="", tools=None):
+            # Bail out once the nudge shows up in history — proves it was injected.
+            if any(m.get("role") == "user" and "Stop retrying the same way" in m.get("content", "")
+                   for m in messages):
+                return LLMResponse(text="done")
+            return LLMResponse(tool_calls=[ToolCall(name="list_tasks", args={})])
+        def embed(self, text):
+            return StubLLM().embed(text)
+
+    agent = Agent(ThrashingLLM(), mem, reg)
+    reply = agent.run("do something that keeps failing")
+    assert reply == "done"
+    assert any("Stop retrying the same way" in (m.get("content") or "") for m in agent.history)
 
 
 def test_gemini_skips_empty_assistant_turn():

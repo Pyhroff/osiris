@@ -2,11 +2,20 @@
   {
     "name": "morning-brief",
     "time": "08:30",
-    "prompt": "Morning briefing. Do these steps: 1) git_list_repos and flag any repo with uncommitted changes or ahead/behind its remote. 2) gmail_search 'is:unread newer_than:1d' and summarize only what matters (internships, hackathons, interviews, deadlines) - ignore promotions. 3) calendar_list_events for the next 2 days. 4) list_tasks that are pending. Format as short bullets under headers REPOS / MAIL / CALENDAR / TASKS. Under 200 words total."
+    "agent": "personal",
+    "prompt": "Morning briefing. Do these steps: 1) git_list_repos and flag any repo with uncommitted changes or ahead/behind its remote. 2) gmail_search 'is:unread newer_than:1d' and summarize only what matters (internships, hackathons, interviews, deadlines) - ignore promotions. 3) calendar_list_events for the next 2 days. 4) list_tasks that are pending. Plain text, short lines under headers REPOS / MAIL / CALENDAR / TASKS, no markdown bold. Under 200 words total."
   },
   {
     "name": "evening-repo-check",
     "time": "21:30",
+    "agent": "coding",
     "prompt": "Evening check: run git_list_repos and report ONLY repos with uncommitted changes or that are ahead of their remote, as one line each with the change count. If everything is clean and pushed, say exactly: all repos clean and synced."
+  },
+  {
+    "name": "security-digest",
+    "time": "09:00",
+    "days": ["Sun"],
+    "agent": "redteam",
+    "prompt": "Weekly security digest for a cybersecurity student focused on red team, blue team, and AI/LLM security (relevant to SOC-PARALLAX, PromptStrike, DarkDecoder). Do these steps: 1) cve_lookup on 2-3 varying topics this week - rotate through prompt injection, common web vuln classes, notable vendor CVEs, LLM framework vulnerabilities - pick the 2-3 most severe or interesting results. 2) web_search for recent security news specifically relevant to red team, blue team, or AI security - pick 2-3 genuinely notable items, skip generic listicles. Plain text output under headers CVES and NEWS, one line per item with a leading dash, no markdown bold. Under 200 words total. No preamble, no closing offer to help."
   }
 ]

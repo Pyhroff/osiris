@@ -52,8 +52,13 @@ def load_routines() -> list[dict]:
 
 
 def routine_due(routine: dict, last_run: str, now: datetime) -> bool:
-    """Due when its HH:MM has passed today and it hasn't run today yet."""
+    """Due when its HH:MM has passed today and it hasn't run today yet. An
+    optional "days" list (e.g. ["Sun"]) restricts it to those weekdays —
+    omit it for the default daily cadence."""
     if last_run.startswith(now.strftime("%Y-%m-%d")):
+        return False
+    days = routine.get("days")
+    if days and now.strftime("%a") not in days:
         return False
     return now.strftime("%H:%M") >= routine["time"]
 
@@ -71,7 +76,13 @@ def run_routine(routine: dict, memory: Memory):
         llm = ModelRouter(verbose=False)
         mem = Memory(llm)  # LLM-backed memory for the agent (separate from reminder poller)
         _agent = Agent(llm, mem, build_registry(mem, Planner(llm, mem)))
-    result = _agent.run(routine["prompt"])
+    from osiris.agents import PROFILES
+    # Routines are pre-written prompts, not live user input — declare the agent
+    # explicitly rather than trusting keyword routing, which can land on a
+    # profile missing tools the prompt actually needs (e.g. "mail" inside
+    # "gmail_search" routing a repo+calendar+mail brief to the email-only agent).
+    profile = PROFILES.get(routine.get("agent", "personal"), PROFILES["personal"])
+    result = _agent.run(routine["prompt"], profile=profile)
     _agent.history.clear()  # routines are independent; don't let them pile up context
 
     BRIEFINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -87,7 +98,8 @@ def main():
     routines = load_routines()
     print(f"OSIRIS daemon: {len(routines)} routine(s), reminders every {POLL_SECONDS}s. Ctrl+C to stop.")
     for r in routines:
-        print(f"  · {r['name']} at {r['time']} daily")
+        cadence = "/".join(r["days"]) if r.get("days") else "daily"
+        print(f"  · {r['name']} at {r['time']} {cadence}")
 
     while True:
         for task in memory.due_unnotified():

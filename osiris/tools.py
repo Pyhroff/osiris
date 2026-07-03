@@ -5,7 +5,10 @@ converts them to whatever the underlying API wants.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
+import re
+import socket
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +19,35 @@ import requests
 from . import config
 from .memory import Memory
 from .planner import Planner
+
+# Recon tools OSIRIS is allowed to shell out to, and the flags each one may
+# receive. Deliberately excludes exploitation/brute-force tools (sqlmap,
+# hydra, metasploit) and any nmap/curl flag that writes files or runs
+# arbitrary scripts (-oN, --script, -e) — this is recon-only, not an
+# exploitation framework.
+_RECON_TOOLS = {
+    "nmap": {"safe_flags": {"-sV", "-sC", "-sT", "-sU", "-sS", "-A", "-Pn",
+                            "-T0", "-T1", "-T2", "-T3", "-T4", "-T5",
+                            "--open", "-p", "--top-ports", "-6"}},
+    "whois": {"safe_flags": set()},
+    "dig": {"safe_flags": {"+short", "+trace", "-x", "A", "AAAA", "MX", "TXT", "NS", "CNAME"}},
+    "nslookup": {"safe_flags": set()},
+    "ping": {"safe_flags": {"-n", "-c"}},
+    "curl": {"safe_flags": {"-I", "--head", "-v", "-s", "-L"}},
+}
+
+# Test/build/lint commands run_project_command may invoke, one repo at a time.
+# Deliberately narrow — no arbitrary script execution, just the handful of
+# commands you'd run by hand while checking a project's health.
+_PROJECT_COMMANDS = {
+    "pytest": ["pytest"],
+    "npm-test": ["npm", "test"],
+    "npm-build": ["npm", "run", "build"],
+    "npm-lint": ["npm", "run", "lint"],
+    "ruff": ["ruff", "check", "."],
+    "mypy": ["mypy", "."],
+}
+_ARG_PATTERN = re.compile(r"[A-Za-z0-9_./:=,\-]+")
 
 
 class ToolRegistry:
@@ -295,6 +327,88 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
          "required": ["repo", "title"]},
         lambda repo, title, body="", base="main": _gh_create_pr(repo, title, body, base))
 
+    # -- recon (read-only network tools, authorized targets only) -----------------
+    reg.register(
+        "run_recon",
+        "Run a read-only recon tool (nmap/whois/dig/nslookup/ping/curl) against an "
+        "authorized target. Target must be localhost/a private IP, or listed in "
+        "OSIRIS_AUTHORIZED_TARGETS in .env — never run this against a target without "
+        "confirmed authorization. Flags are restricted to a safe allowlist per tool "
+        "(no file-writing or script-execution flags). ALWAYS show the user the exact "
+        "command and get explicit confirmation before calling this.",
+        {"type": "object",
+         "properties": {
+             "tool": {"type": "string", "description": f"one of: {', '.join(_RECON_TOOLS)}"},
+             "target": {"type": "string", "description": "hostname or IP"},
+             "flags": {"type": "array", "items": {"type": "string"},
+                       "description": "optional flags, e.g. ['-sV', '-Pn']"},
+         },
+         "required": ["tool", "target"]},
+        lambda tool, target, flags=None: _run_recon(tool, target, flags))
+
+    reg.register(
+        "run_project_command",
+        "Run a test/build/lint command in a project repo (pytest, npm-test, npm-build, "
+        "npm-lint, ruff, mypy). Runs real code and can have side effects (test artifacts, "
+        "build output) — show the user the exact command and get their OK first.",
+        {"type": "object",
+         "properties": {
+             "repo": {"type": "string", "description": "local repo folder, e.g. 'PromptStrike'"},
+             "command": {"type": "string", "description": f"one of: {', '.join(_PROJECT_COMMANDS)}"},
+             "extra_args": {"type": "array", "items": {"type": "string"},
+                            "description": "optional extra args, e.g. ['-k', 'test_auth']"},
+         },
+         "required": ["repo", "command"]},
+        lambda repo, command, extra_args=None: _run_project_command(repo, command, extra_args))
+
+    reg.register(
+        "cve_lookup",
+        "Look up CVEs from the live NVD database — pass an exact CVE ID (CVE-YYYY-NNNNN) or "
+        "a keyword (e.g. 'log4j', 'openssl heap overflow'). Free, no API key required.",
+        {"type": "object",
+         "properties": {"query": {"type": "string"},
+                        "max_results": {"type": "integer", "description": "default 5, max 10"}},
+         "required": ["query"]},
+        lambda query, max_results=5: _cve_lookup(query, max_results))
+
+    # -- web search ---------------------------------------------------------------
+    reg.register(
+        "web_search",
+        "Search the live web (Tavily). Use for current events, facts not in training data, "
+        "or researching a company/person before outreach.",
+        {"type": "object",
+         "properties": {"query": {"type": "string"},
+                        "max_results": {"type": "integer", "description": "default 5, max 10"}},
+         "required": ["query"]},
+        lambda query, max_results=5: _web_search(query, max_results))
+
+    # -- job/internship applications -----------------------------------------------
+    reg.register(
+        "track_application",
+        "Log a job/internship application for follow-up tracking. Call this after sending or "
+        "drafting outreach to a company.",
+        {"type": "object",
+         "properties": {"company": {"type": "string"}, "role": {"type": "string"},
+                        "contact_email": {"type": "string"}, "notes": {"type": "string"}},
+         "required": ["company"]},
+        lambda company, role="", contact_email="", notes="":
+            f"logged application #{memory.add_application(company, role, contact_email, notes)}")
+
+    reg.register(
+        "list_applications",
+        "List tracked applications, optionally filtered by status (applied/interview/offer/rejected).",
+        {"type": "object", "properties": {"status": {"type": "string"}}},
+        lambda status="": memory.list_applications(status) or "no tracked applications")
+
+    reg.register(
+        "update_application_status",
+        "Update a tracked application's status (e.g. 'interview', 'offer', 'rejected').",
+        {"type": "object",
+         "properties": {"application_id": {"type": "integer"}, "status": {"type": "string"}},
+         "required": ["application_id", "status"]},
+        lambda application_id, status: "updated" if memory.update_application_status(application_id, status)
+            else "error: no such application")
+
     # -- gmail + calendar (OAuth; see osiris/google_services.py for setup) --------
     from . import google_services as g
 
@@ -489,6 +603,114 @@ def _git_push(repo: str) -> str:
             return (r.stdout + r.stderr).replace(token, "***").strip() or (
                 "pushed" if r.returncode == 0 else f"git push exited {r.returncode}")
     return _git(repo, "push")
+
+
+def _target_authorized(target: str) -> bool:
+    authorized = {t.strip().lower() for t in config.AUTHORIZED_TARGETS.split(",") if t.strip()}
+    if target.lower() in authorized:
+        return True
+    try:
+        ip = ipaddress.ip_address(target)
+        return ip.is_loopback or ip.is_private
+    except ValueError:
+        pass
+    try:  # hostname that resolves to a private/loopback address counts as local
+        ip = ipaddress.ip_address(socket.gethostbyname(target))
+        return ip.is_loopback or ip.is_private
+    except (socket.gaierror, ValueError):
+        return False
+
+
+def _flag_ok(spec: dict, flag: str) -> bool:
+    if flag.startswith("-") or flag.startswith("+"):
+        return flag in spec["safe_flags"]
+    return bool(re.fullmatch(r"[A-Za-z0-9,.\-]+", flag))  # bare values: ports, record types
+
+
+def _run_recon(tool: str, target: str, flags: list | None = None) -> str:
+    flags = flags or []
+    spec = _RECON_TOOLS.get(tool)
+    if not spec:
+        return f"error: '{tool}' not in allowlist ({', '.join(_RECON_TOOLS)})"
+    if not _target_authorized(target):
+        return (f"error: '{target}' is not localhost/private and not in OSIRIS_AUTHORIZED_TARGETS "
+                f"— add it to .env yourself (comma-separated) only if you have explicit authorization")
+    bad = [f for f in flags if not _flag_ok(spec, f)]
+    if bad:
+        return f"error: flag(s) not allowed for {tool}: {bad} — allowed: {sorted(spec['safe_flags'])}"
+    try:
+        r = subprocess.run([tool] + flags + [target], capture_output=True, text=True, timeout=90)
+    except FileNotFoundError:
+        return f"error: '{tool}' is not installed / not on PATH"
+    except subprocess.TimeoutExpired:
+        return f"error: {tool} timed out after 90s"
+    out = (r.stdout + r.stderr).strip()
+    return (out[:6000] + ("\n...(truncated)" if len(out) > 6000 else "")) if out else "(no output)"
+
+
+def _run_project_command(repo: str, command: str, extra_args: list | None = None) -> str:
+    extra_args = extra_args or []
+    base = _PROJECT_COMMANDS.get(command)
+    if not base:
+        return f"error: '{command}' not in allowlist ({', '.join(_PROJECT_COMMANDS)})"
+    bad = [a for a in extra_args if not _ARG_PATTERN.fullmatch(a)]
+    if bad:
+        return f"error: extra_args contains disallowed characters: {bad}"
+    p = _allowed_path(repo)
+    if not p.is_dir():
+        return f"error: not a folder: {repo}"
+    try:
+        r = subprocess.run(base + extra_args, capture_output=True, text=True, timeout=300, cwd=str(p))
+    except FileNotFoundError:
+        return f"error: '{base[0]}' is not installed / not on PATH"
+    except subprocess.TimeoutExpired:
+        return f"error: {command} timed out after 300s"
+    out = (r.stdout + r.stderr).strip()
+    out = (out[:8000] + ("\n...(truncated)" if len(out) > 8000 else "")) if out else "(no output)"
+    return f"exit code {r.returncode}\n{out}"
+
+
+def _cve_lookup(query: str, max_results: int = 5) -> list | str:
+    max_results = max(1, min(max_results, 10))
+    params = {"resultsPerPage": max_results}
+    if re.fullmatch(r"CVE-\d{4}-\d{4,7}", query.upper()):
+        params["cveId"] = query.upper()
+    else:
+        params["keywordSearch"] = query
+    try:
+        r = requests.get("https://services.nvd.nist.gov/rest/json/cves/2.0",
+                         params=params, timeout=20)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        return f"error: NVD lookup failed: {e}"
+    out = []
+    for item in r.json().get("vulnerabilities", []):
+        cve = item["cve"]
+        desc = next((d["value"] for d in cve.get("descriptions", []) if d["lang"] == "en"), "")
+        score = None
+        for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+            if key in cve.get("metrics", {}):
+                score = cve["metrics"][key][0]["cvssData"].get("baseScore")
+                break
+        out.append({"id": cve["id"], "published": cve.get("published", "")[:10],
+                    "cvss": score, "description": desc[:400]})
+    return out or "no matching CVEs"
+
+
+def _web_search(query: str, max_results: int = 5) -> list | str:
+    if not config.TAVILY_API_KEY:
+        return "error: TAVILY_API_KEY not set in .env — free key, no card, at tavily.com"
+    try:
+        r = requests.post("https://api.tavily.com/search",
+                          json={"api_key": config.TAVILY_API_KEY, "query": query,
+                                "max_results": max(1, min(max_results, 10))},
+                          timeout=20)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        return f"error: web search failed: {e}"
+    results = r.json().get("results", [])
+    return [{"title": x.get("title", ""), "url": x.get("url", ""),
+             "snippet": (x.get("content", "") or "")[:400]} for x in results] or "no results"
 
 
 def _gh_create_pr(repo: str, title: str, body: str = "", base: str = "main") -> str:

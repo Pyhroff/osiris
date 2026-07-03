@@ -23,9 +23,14 @@ HELP = """commands:
   /goals     show active goals & milestones
   /tasks     show pending scheduled tasks
   /reflect   distill this session into long-term memories now
+  /clear     wipe this session's conversation (long-term memories are kept)
   /help      this message
   /quit      exit (reflects automatically)
-anything else goes straight to the agent."""
+anything else goes straight to the agent.
+
+if something breaks mid-task or a reply looks wrong/stuck:
+  say "continue" to resume with a fresh step budget, or /clear to reset the
+  conversation and start over — neither loses anything you've told it to remember."""
 
 
 def _run_reflection(llm, memory, agent):
@@ -78,6 +83,9 @@ def main():
             print(HELP)
         elif line == "/reflect":
             _run_reflection(llm, memory, agent)
+        elif line == "/clear":
+            agent.history.clear()
+            print("conversation cleared — long-term memories are untouched.")
         elif line == "/goals":
             goals = memory.list_goals()
             if not goals:
@@ -103,7 +111,8 @@ def main():
                 via = getattr(llm, "active", "")
                 print(f"\nosiris › {reply}" + (f"\n  [{via}]\n" if via else "\n"))
             except Exception as e:
-                print(f"\n[error] {type(e).__name__}: {e}\n")
+                print(f"\n[error] {type(e).__name__}: {e}")
+                print("  if this keeps happening, try /clear to reset the conversation\n")
 
 
 if __name__ == "__main__":

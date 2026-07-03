@@ -72,6 +72,14 @@ def manual_reflect():
     return {"stored": stored}
 
 
+@app.post("/api/clear")
+def clear_conversation():
+    """Reset the session if a reply looks stuck or wrong. Long-term memories
+    (remembered facts, goals, tasks) are untouched — only this chat resets."""
+    agent.history.clear()
+    return {"cleared": True}
+
+
 @app.get("/api/state")
 def state():
     return {
