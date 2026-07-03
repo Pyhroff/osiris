@@ -15,10 +15,12 @@ _MEMORY = ["remember", "recall", "current_datetime"]
 @dataclass(frozen=True)
 class AgentProfile:
     key: str
-    persona: str          # appended to the base system prompt
-    tools: list[str]      # tool names this agent may see (empty = all)
-    keywords: list[str]   # routing triggers
-    max_steps: int = 0    # per-profile tool-loop budget (0 = global default)
+    persona: str            # appended to the base system prompt
+    tools: list[str]        # tool names this agent may see (empty = all)
+    keywords: list[str]     # routing triggers
+    max_steps: int = 0      # per-profile tool-loop budget (0 = global default)
+    keyword_weight: int = 1 # multiplier for this profile's keyword hits
+    priority: int = 0       # tiebreaker when weighted scores are equal
 
 
 PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
@@ -35,10 +37,11 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "4) Ask if the user wants it on GitHub; only then github_create_repo. "
         "Default location for new projects: the 'OSIRIS FILES' folder.",
         _MEMORY + ["scaffold_project", "fs_list", "fs_read", "fs_write", "fs_edit",
-                   "git_init", "git_status", "git_commit", "git_push", "github_create_repo"],
+                   "git_init", "git_status", "git_commit", "git_push",
+                   "github_create_repo", "github_create_pr"],
         ["build me", "build a", "create a project", "new project", "scaffold",
          "architecture", "design a", "make me a", "full project", "high end"],
-        max_steps=20),
+        max_steps=20, keyword_weight=2, priority=1),
     AgentProfile(
         "coding",
         "You are the Coding agent: work with local git repos (status/diff/commit/push), browse "
@@ -54,7 +57,7 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "Before fs_write/fs_edit, show the user the exact change and get their OK. Before "
         "git_commit, show status and proposed message; before git_push, get explicit confirmation.",
         _MEMORY + ["github_list_issues", "github_create_issue", "github_list_repos",
-                   "github_create_repo", "scaffold_project",
+                   "github_create_repo", "github_create_pr", "scaffold_project",
                    "git_status", "git_diff", "git_log", "git_commit", "git_push",
                    "git_sync_check", "git_list_repos", "git_init",
                    "fs_list", "fs_read", "fs_find", "fs_write", "fs_edit",
@@ -67,7 +70,7 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "You are the Email agent: search, read, summarize, and draft mail. Prefer "
         "gmail_create_draft so the user reviews before sending; for several emails, create "
         "one draft each. Never gmail_send without explicit confirmation in this conversation.",
-        _MEMORY + ["gmail_search", "gmail_read", "gmail_send", "gmail_create_draft"],
+        _MEMORY + ["gmail_search", "gmail_read", "gmail_send", "gmail_create_draft", "gmail_reply"],
         ["email", "mail", "inbox", "unread", "gmail", "draft", "send a message to"]),
     AgentProfile(
         "learning",
@@ -93,9 +96,10 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
 
 def pick_agent(text: str) -> AgentProfile:
     t = text.lower()
-    best, hits = PROFILES["personal"], 0
+    best, score = PROFILES["personal"], 0
     for p in PROFILES.values():
         n = sum(1 for k in p.keywords if k in t)
-        if n > hits:
-            best, hits = p, n
+        s = n * p.keyword_weight
+        if s > score or (s == score and s > 0 and p.priority > best.priority):
+            best, score = p, s
     return best

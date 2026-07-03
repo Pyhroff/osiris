@@ -89,13 +89,13 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
 
     # -- memory ----------------------------------------------------------------
     reg.register(
-        "remember", "Store a durable fact about the user or their world for future sessions.",
+        "remember", "Persist a durable fact about the user for future sessions.",
         {"type": "object", "properties": {"text": {"type": "string", "description": "the fact to store"}},
          "required": ["text"]},
         lambda text: f"stored memory #{memory.remember(text)}")
 
     reg.register(
-        "recall", "Search stored memories for facts relevant to a query.",
+        "recall", "Search stored memories by query.",
         {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
         lambda query: json.dumps(memory.recall(query, top_k=5)) or "no relevant memories")
 
@@ -156,34 +156,32 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
 
     # -- desktop filesystem (read-only, limited to allowed roots) -----------------
     reg.register(
-        "fs_list", "List a folder on the user's computer (Desktop and subfolders by default).",
+        "fs_list", "List a folder on the user's Desktop/project folders.",
         {"type": "object", "properties": {"path": {"type": "string", "description": "e.g. 'StylesOS' or an absolute path"}},
          "required": ["path"]},
         lambda path: _fs_list(path))
 
     reg.register(
-        "fs_read", "Read a text file from the user's computer (within allowed folders).",
+        "fs_read", "Read a file from the user's Desktop/project folders.",
         {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
         lambda path: _fs_read(path))
 
     reg.register(
-        "fs_find", "Find files by glob pattern under an allowed folder (e.g. pattern '**/*.py').",
+        "fs_find", "Find files by glob pattern under a Desktop folder (e.g. '**/*.py').",
         {"type": "object",
          "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "description": "folder to search; defaults to Desktop"}},
          "required": ["pattern"]},
         lambda pattern, path="": _fs_find(pattern, path))
 
     reg.register(
-        "fs_write", "Create or overwrite a text file in the user's project folders. "
-                    "ALWAYS show the user the intended content and get their OK in conversation first.",
+        "fs_write", "Write or overwrite a file in Desktop project folders. Show user the content and get OK first.",
         {"type": "object",
          "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
          "required": ["path", "content"]},
         lambda path, content: _fs_write(path, content))
 
     reg.register(
-        "fs_edit", "Find-and-replace an exact text snippet in a project file. "
-                   "ALWAYS show the user the exact change and get their OK in conversation first.",
+        "fs_edit", "Find-and-replace an exact snippet in a project file. Show user the change and get OK first.",
         {"type": "object",
          "properties": {"path": {"type": "string"},
                         "find": {"type": "string", "description": "exact text to replace"},
@@ -194,9 +192,8 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
     # -- project scaffolding ----------------------------------------------------
     reg.register(
         "scaffold_project",
-        "Create a complete project in ONE call: writes every file at once (architecture doc, "
-        "source, config, tests). Use this instead of many fs_write calls. Contents must be "
-        "complete, working code — never placeholders or TODOs.",
+        "Write an entire project in ONE call: every file at once (architecture doc, source, "
+        "config, tests). Replaces many fs_write calls. Code must be complete — no stubs or TODOs.",
         {"type": "object",
          "properties": {
              "folder": {"type": "string",
@@ -212,8 +209,7 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
 
     # -- local git (repos under allowed roots) -------------------------------------
     reg.register(
-        "git_list_repos", "List all local git repositories with their branch and number of "
-                          "uncommitted changes — one call checks every repo.",
+        "git_list_repos", "List every local git repo with branch + uncommitted-change count in one call.",
         {"type": "object", "properties": {}},
         lambda: _git_list_repos())
 
@@ -233,7 +229,7 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
     reg.register(
         "git_diff", "Show uncommitted changes in a local repository.",
         {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]},
-        lambda repo: _git(repo, "diff", "--stat", "HEAD")[:6000])
+        lambda repo: _git_diff(repo))
 
     reg.register(
         "git_log", "Show recent commits in a local repository.",
@@ -243,30 +239,27 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         lambda repo, limit=5: _git(repo, "log", f"-{limit}", "--oneline"))
 
     reg.register(
-        "git_commit", "Stage all changes and commit in a local repository. Show the user the status first and confirm the message.",
+        "git_commit", "Stage all changes and commit. Confirm message with user first.",
         {"type": "object",
          "properties": {"repo": {"type": "string"}, "message": {"type": "string"}},
          "required": ["repo", "message"]},
         lambda repo, message: _git(repo, "add", "-A") + "\n" + _git(repo, "commit", "-m", message))
 
     reg.register(
-        "git_push", "Push commits to the remote. Always confirm with the user before pushing.",
+        "git_push", "Push commits to the remote origin. Confirm with user before calling.",
         {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]},
-        lambda repo: _git(repo, "push"))
+        lambda repo: _git_push(repo))
 
     reg.register(
         "git_sync_check",
-        "Check whether a local repo matches its GitHub remote: fetches, then reports "
-        "uncommitted local changes and commits ahead/behind the remote. Use this before "
-        "deciding whether to commit and push.",
+        "Fetch + compare local repo against remote; reports uncommitted changes and ahead/behind status.",
         {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]},
         lambda repo: _git_sync_check(repo))
 
     # -- github ----------------------------------------------------------------
     reg.register(
         "github_create_repo",
-        "Create a new GitHub repository from a local repo folder and push it (private by "
-        "default). Always confirm with the user before calling this.",
+        "Create a GitHub repo from a local folder and push it (private by default). Confirm with user first.",
         {"type": "object",
          "properties": {"repo": {"type": "string", "description": "local repo folder"},
                         "name": {"type": "string", "description": "GitHub repo name; defaults to folder name"},
@@ -275,7 +268,7 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         lambda repo, name="", private=True: _gh_create_repo(repo, name, private))
 
     reg.register(
-        "github_list_repos", "List the user's repositories on GitHub (name, visibility, last push).",
+        "github_list_repos", "List the user's GitHub repos (name, visibility, last push). Returns 20 most recent.",
         {"type": "object", "properties": {}},
         lambda: _gh_list_repos())
 
@@ -291,11 +284,22 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
          "required": ["repo", "title"]},
         lambda repo, title, body="": _gh_create_issue(repo, title, body))
 
+    reg.register(
+        "github_create_pr",
+        "Open a pull request on GitHub from the current branch. Confirm with user first.",
+        {"type": "object",
+         "properties": {"repo": {"type": "string", "description": "local repo folder"},
+                        "title": {"type": "string"},
+                        "body": {"type": "string", "description": "PR description"},
+                        "base": {"type": "string", "description": "target branch, default 'main'"}},
+         "required": ["repo", "title"]},
+        lambda repo, title, body="", base="main": _gh_create_pr(repo, title, body, base))
+
     # -- gmail + calendar (OAuth; see osiris/google_services.py for setup) --------
     from . import google_services as g
 
     reg.register(
-        "gmail_search", "Search the user's Gmail inbox (standard Gmail query syntax, e.g. 'is:unread', 'from:foo@bar.com').",
+        "gmail_search", "Search Gmail (standard query: 'is:unread', 'from:foo@bar.com').",
         {"type": "object",
          "properties": {"query": {"type": "string"},
                         "max_results": {"type": "integer", "description": "default 5"}},
@@ -303,12 +307,12 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         lambda query, max_results=5: g.gmail_search(query, max_results) or "no matching emails")
 
     reg.register(
-        "gmail_read", "Read the full body of an email by its message id (from gmail_search).",
+        "gmail_read", "Read an email body by message id (from gmail_search).",
         {"type": "object", "properties": {"message_id": {"type": "string"}}, "required": ["message_id"]},
         lambda message_id: g.gmail_read(message_id))
 
     reg.register(
-        "gmail_send", "Send an email from the user's Gmail account. Confirm with the user before sending.",
+        "gmail_send", "Send an email. Confirm with user before calling.",
         {"type": "object",
          "properties": {"to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}},
          "required": ["to", "subject", "body"]},
@@ -316,12 +320,20 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
 
     reg.register(
         "gmail_create_draft",
-        "Save an email as a draft in the user's Gmail Drafts folder (nothing is sent). "
-        "For multiple drafts, call once per email.",
+        "Save an email draft (nothing sends). Call once per email.",
         {"type": "object",
          "properties": {"to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}},
          "required": ["to", "subject", "body"]},
         lambda to, subject, body: g.gmail_create_draft(to, subject, body))
+
+    reg.register(
+        "gmail_reply",
+        "Draft a reply to an existing email thread. Saves to Drafts — nothing sends.",
+        {"type": "object",
+         "properties": {"message_id": {"type": "string", "description": "id of the email to reply to (from gmail_search)"},
+                        "body": {"type": "string"}},
+         "required": ["message_id", "body"]},
+        lambda message_id, body: g.gmail_reply(message_id, body))
 
     reg.register(
         "calendar_list_events", "List upcoming Google Calendar events.",
@@ -449,6 +461,44 @@ def _scaffold_project(folder: str, files: list) -> str:
     return f"scaffolded {len(written)} files in {root}:\n" + "\n".join(written)
 
 
+def _git_diff(repo: str) -> str:
+    out = _git(repo, "diff", "--stat", "HEAD")
+    if "unknown revision" in out or "bad default revision" in out or "fatal" in out.lower():
+        out = _git(repo, "diff", "--stat", "--cached")
+    return out[:6000]
+
+
+def _git_push(repo: str) -> str:
+    """Push using an inline gh token so GCM doesn't hang on Windows."""
+    import re
+    p = _allowed_path(repo)
+    remote_url = subprocess.run(["git", "-C", str(p), "remote", "get-url", "origin"],
+                                capture_output=True, text=True, timeout=15).stdout.strip()
+    if not remote_url:
+        return "error: no remote 'origin' set — run github_create_repo first"
+    branch = subprocess.run(["git", "-C", str(p), "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True, timeout=15).stdout.strip() or "main"
+    if "github.com" in remote_url:
+        token = subprocess.run(["gh", "auth", "token"],
+                               capture_output=True, text=True, timeout=30).stdout.strip()
+        if token:
+            clean = re.sub(r"https://[^@]*@", "https://", remote_url)
+            authed = clean.replace("https://", f"https://{token}@")
+            r = subprocess.run(["git", "-C", str(p), "push", "-u", authed, branch],
+                               capture_output=True, text=True, timeout=120)
+            return (r.stdout + r.stderr).replace(token, "***").strip() or (
+                "pushed" if r.returncode == 0 else f"git push exited {r.returncode}")
+    return _git(repo, "push")
+
+
+def _gh_create_pr(repo: str, title: str, body: str = "", base: str = "main") -> str:
+    p = _allowed_path(repo)
+    r = subprocess.run(
+        ["gh", "pr", "create", "--title", title, "--body", body or "", "--base", base],
+        capture_output=True, text=True, timeout=60, cwd=str(p))
+    return (r.stdout + r.stderr).strip() or "error: gh pr create returned no output"
+
+
 def _gh_create_repo(repo: str, name: str = "", private: bool = True) -> str:
     """Create the remote via gh CLI (its keyring auth has repo scope), then push
     with an inline token — the Windows credential manager is known to hang."""
@@ -498,6 +548,26 @@ def _git_list_repos() -> list[dict] | str:
     return repos or "no git repositories found in the allowed folders"
 
 
+_DEFAULT_GITIGNORE = """\
+.env
+*.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+node_modules/
+dist/
+build/
+*.egg-info/
+venv/
+.venv/
+*.log
+.DS_Store
+token.json
+credentials.json
+"""
+
+
 def _git_init(path: str) -> str:
     p = _allowed_path(path)
     if (p / ".git").exists():
@@ -505,12 +575,15 @@ def _git_init(path: str) -> str:
     p.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(["git", "-C", str(p), "init", "-b", "main"],
                        capture_output=True, text=True, timeout=30)
+    gi = p / ".gitignore"
+    if not gi.exists():
+        gi.write_text(_DEFAULT_GITIGNORE, encoding="utf-8")
     return (r.stdout + r.stderr).strip() or f"initialized empty repo at {p}"
 
 
 def _gh_list_repos() -> list[dict]:
     r = requests.get("https://api.github.com/user/repos", headers=_gh_headers(),
-                     params={"per_page": 100, "sort": "pushed"}, timeout=15)
+                     params={"per_page": 20, "sort": "pushed"}, timeout=15)
     r.raise_for_status()
     return [{"name": x["full_name"], "private": x["private"],
              "last_push": (x.get("pushed_at") or "")[:10]} for x in r.json()]

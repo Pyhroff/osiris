@@ -105,7 +105,29 @@ def gmail_create_draft(to: str, subject: str, body: str) -> str:
     mime["to"], mime["subject"] = to, subject
     raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
     d = svc.users().drafts().create(userId="me", body={"message": {"raw": raw}}).execute()
-    return f"draft saved: '{subject}' → {to} (draft id {d['id']})"
+    return f"draft saved: '{subject}' -> {to} (draft id {d['id']})"
+
+
+def gmail_reply(message_id: str, body: str) -> str:
+    """Draft a reply in the same thread. Nothing sends until the user hits send."""
+    svc = _get_service("gmail", "v1")
+    msg = svc.users().messages().get(
+        userId="me", id=message_id, format="metadata",
+        metadataHeaders=["Subject", "From", "Message-ID"]).execute()
+    hdrs = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
+    subject = hdrs.get("Subject", "")
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+    mime = MIMEText(body)
+    mime["to"] = hdrs.get("From", "")
+    mime["subject"] = subject
+    mime["In-Reply-To"] = hdrs.get("Message-ID", "")
+    mime["References"] = hdrs.get("Message-ID", "")
+    raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
+    d = svc.users().drafts().create(
+        userId="me",
+        body={"message": {"raw": raw, "threadId": msg["threadId"]}}).execute()
+    return f"reply draft saved: '{subject}' (draft id {d['id']})"
 
 
 # -- Drive ---------------------------------------------------------------

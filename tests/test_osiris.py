@@ -111,7 +111,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 39
+    assert len(specs) == 41
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -166,6 +166,8 @@ def test_git_init_creates_new_repo(reg, tmp_path):
     out = reg.execute("git_init", {"path": str(tmp_path / "fresh")})
     assert "error" not in out.lower() or "initialized" in out.lower()
     assert (tmp_path / "fresh" / ".git").exists()
+    assert (tmp_path / "fresh" / ".gitignore").exists()  # secrets guard
+    assert ".env" in (tmp_path / "fresh" / ".gitignore").read_text()
     assert "already a git repository" in reg.execute("git_init", {"path": str(tmp_path / "fresh")})
     assert "outside allowed" in reg.execute("git_init", {"path": str(tmp_path.parent / "evil")})
 
@@ -198,6 +200,8 @@ def test_graceful_errors_without_credentials(reg):
     assert "credentials.json missing" in reg.execute("gmail_search", {"query": "x"})
     assert "credentials.json missing" in reg.execute(
         "gmail_create_draft", {"to": "a@b.c", "subject": "s", "body": "b"})
+    assert "credentials.json missing" in reg.execute(
+        "gmail_reply", {"message_id": "abc", "body": "hi"})
 
 
 @pytest.mark.skipif(subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
@@ -275,6 +279,10 @@ def test_agent_routing():
     assert pick_agent("commit and push my repo").key == "coding"
     assert pick_agent("plan my study roadmap").key == "learning"
     assert pick_agent("hello!").key == "personal"
+    # architect must win even when github/commit appear alongside a build keyword
+    assert pick_agent("build me a FastAPI REST API with tests").key == "architect"
+    assert pick_agent("build me a react app and push to github").key == "architect"
+    assert pick_agent("design a CLI tool with github integration").key == "architect"
 
 
 def test_profiles_reference_real_tools(reg):
