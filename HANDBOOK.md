@@ -211,6 +211,41 @@ budget and full context of what was already tried — this is what actually reco
 FastAPI/JWT build (Mistral got stuck, "continue... different model" picked it up on Groq and
 finished it). See §2b.
 
+### 5c. Plan-then-execute + self-critique (architect)
+
+Two more reasoning steps bookend the generate-test-fix loop, both persona-level (reasoning
+quality, not new tools):
+
+1. **Explicit structured plan before any code exists** — step 1 of the workflow is now an
+   enumerated file list (path → one-line purpose), with an instruction to check that list
+   against the actual request *before* scaffolding — catching "forgot the tests" or "missed a
+   requirement" while it's still a one-line fix to the plan, not a file to rewrite afterward.
+2. **Self-critique after verification, before commit** — "the tests pass" and "this is what was
+   asked for" are different questions; a passing test suite doesn't catch a misunderstood
+   requirement or a silently-simplified piece. Step 4 re-reads the original request against
+   what actually got built (re-reading a file with `fs_read` rather than trusting its own
+   memory of writing it) and fixes anything real before the first commit happens.
+
+**Honest caveat, same as everywhere else in this section**: persona-level, not code-enforced.
+Live-tested on a small build that landed on the *fallback reasoning model* (see below) rather
+than the usual Gemini/Groq path — the build itself was genuinely correct (4/4 tests, real
+files) and the fix-loop engaged correctly, but this specific model stopped to ask the user for
+a commit message instead of just deciding one itself, despite the instruction saying not to.
+Reinforced that specific instruction; the honest takeaway is these steps add real rigor but
+don't turn a weaker model into a stronger one — same ceiling as the rest of this document.
+
+### 5d. A genuine reasoning model in the chain
+
+`OSIRIS_OPENROUTER_MODEL` is now `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` — native
+chain-of-thought, not the prompted approximation described in §3b. Verified live before
+switching: DeepSeek R1's free OpenRouter slug was **discontinued** (paywalled) as of this
+check — don't reach for `deepseek/deepseek-r1:free`, it 404s now. This nemotron model was
+confirmed to both emit proper structured tool calls *and* answer in plain text correctly,
+which matters more than raw reasoning quality — a reasoning model that can't reliably call
+tools is useless in an agent loop. It only actually gets used when Gemini/Groq/Cerebras/
+Mistral are all cooling down (OpenRouter is 5th in the chain), so its effect on typical usage
+is small — but real when it does fire.
+
 ### Confirm-before-acting tools (persona-enforced, not hard-gated)
 `fs_write`, `fs_edit`, `git_commit`, `git_push`, `github_create_repo`, `github_create_pr`,
 `gmail_send`, `run_recon`, `run_project_command` — the agent is instructed to show you the
