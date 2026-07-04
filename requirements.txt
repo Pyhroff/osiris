@@ -13,5 +13,8 @@ plyer>=2.1.0
 fastapi>=0.110.0
 uvicorn>=0.29.0
 
+# PDF generation (write_pdf tool)
+fpdf2>=2.7.0
+
 # dev
 pytest>=8.0.0

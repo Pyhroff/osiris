@@ -71,7 +71,8 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
                    "git_status", "git_diff", "git_log", "git_commit", "git_push",
                    "git_sync_check", "git_list_repos", "git_init", "run_project_command",
                    "fs_list", "fs_read", "fs_find", "fs_write", "fs_edit",
-                   "write_file", "read_file", "list_files"],
+                   "write_file", "read_file", "list_files",
+                   "analyze_image", "index_folder", "search_docs", "write_pdf"],
         ["github", "repo", "issue", "bug", "code", "commit", "push", "diff",
          "git ", "pr ", "pull request", "folder", "desktop", "sync", "version"],
         max_steps=20),
@@ -120,7 +121,7 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "attacking a system without stated authorization, ask first.",
         _MEMORY + ["fs_list", "fs_read", "fs_write", "fs_find", "scaffold_project",
                    "git_init", "git_status", "git_commit", "write_file", "read_file", "list_files",
-                   "run_recon", "cve_lookup", "web_search"],
+                   "run_recon", "cve_lookup", "web_search", "analyze_image", "write_pdf"],
         ["pentest", "red team", "redteam", "exploit", "recon", "ctf", "bug bounty",
          "bug hunt", "payload", "privilege escalation", "sqli", "xss", "burp", "nmap",
          "vapt", "vulnerability scan"],
@@ -138,7 +139,7 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "web_search is for current threat-intel context (recent incidents, IOC reputation).",
         _MEMORY + ["fs_list", "fs_read", "fs_write", "fs_find", "scaffold_project",
                    "git_init", "git_status", "git_commit", "write_file", "read_file", "list_files",
-                   "run_recon", "cve_lookup", "web_search"],
+                   "run_recon", "cve_lookup", "web_search", "analyze_image", "write_pdf"],
         ["blue team", "blueteam", "detection", "incident response", "soc ", "log analysis",
          "siem", "threat hunt", "ioc", "alert triage", "detection rule"],
         max_steps=15, keyword_weight=2, priority=2),
@@ -160,9 +161,13 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "You are the Research agent: gather what is known from the live web, Drive, and "
         "memory, synthesize, and save findings as organized notes in workspace files. Use "
         "web_search for anything current or outside training data — don't guess or say you "
-        "can't when a real search would answer it.",
+        "can't when a real search would answer it. index_folder + search_docs let you search "
+        "a project folder's contents semantically instead of guessing filenames with fs_find — "
+        "index it once, then search_docs finds relevant files by meaning. write_pdf turns a "
+        "finished writeup into a shareable PDF instead of leaving it as a workspace .md file.",
         _MEMORY + ["write_file", "read_file", "list_files", "drive_search", "drive_read",
-                   "fs_list", "fs_read", "fs_find", "web_search"],
+                   "fs_list", "fs_read", "fs_find", "web_search",
+                   "analyze_image", "index_folder", "search_docs", "write_pdf"],
         ["research", "investigate", "summarize", "compare", "analyze", "notes on",
          "drive", "document", "docs", "search the web", "look up", "what's the latest"]),
     AgentProfile(

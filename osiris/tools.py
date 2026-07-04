@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Callable
 
 import requests
+from google import genai
+from google.genai import types as genai_types
 
 from . import config
 from .memory import Memory
@@ -48,6 +50,20 @@ _PROJECT_COMMANDS = {
     "mypy": ["mypy", "."],
 }
 _ARG_PATTERN = re.compile(r"[A-Za-z0-9_./:=,\-]+")
+
+# index_folder: which files are worth indexing, and how they're chunked for
+# embedding. Deliberately text-only — binaries/media aren't useful to embed.
+_INDEXABLE_EXTENSIONS = {
+    ".md", ".txt", ".rst", ".csv", ".json", ".yaml", ".yml",
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".cpp", ".h",
+    ".html", ".css", ".sql",
+}
+_IGNORED_DIR_PARTS = {"node_modules", "__pycache__", "venv", ".venv", "dist", "build"}
+_CHUNK_SIZE = 1500
+_CHUNK_OVERLAP = 200
+
+_IMAGE_MIME_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                     ".webp": "image/webp", ".gif": "image/gif"}
 
 
 class ToolRegistry:
@@ -479,6 +495,53 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         {"type": "object", "properties": {"file_id": {"type": "string"}}, "required": ["file_id"]},
         lambda file_id: g.drive_read(file_id))
 
+    # -- vision ------------------------------------------------------------------
+    reg.register(
+        "analyze_image",
+        "Analyze an image (screenshot, photo, diagram) from an allowed folder and answer a "
+        "question about it, or describe it if no question is given. Needs GEMINI_API_KEY — "
+        "no other configured provider here supports vision.",
+        {"type": "object",
+         "properties": {"path": {"type": "string", "description": "path to the image, e.g. 'Screenshots/error.png'"},
+                        "question": {"type": "string", "description": "what to ask about the image; default: describe it"}},
+         "required": ["path"]},
+        lambda path, question="Describe what's in this image.": _analyze_image(path, question))
+
+    # -- local document index (semantic search over file contents) ---------------
+    reg.register(
+        "index_folder",
+        "Index a folder's text/code files into a searchable semantic index, so search_docs can "
+        "find them later by meaning, not just filename. Safe to re-run — unchanged files "
+        "(by modification time) are skipped, so it's cheap to keep an index current.",
+        {"type": "object",
+         "properties": {"path": {"type": "string", "description": "folder to index, e.g. 'StylesOS'"}},
+         "required": ["path"]},
+        lambda path: _index_folder(memory, path))
+
+    reg.register(
+        "search_docs",
+        "Semantic search over folders previously indexed with index_folder. Returns matching "
+        "file paths with the relevant snippet. Returns nothing until index_folder has been run.",
+        {"type": "object",
+         "properties": {"query": {"type": "string"},
+                        "top_k": {"type": "integer", "description": "default 5"}},
+         "required": ["query"]},
+        lambda query, top_k=5: memory.search_docs(query, top_k) or
+            "no indexed documents match — run index_folder on the relevant folder first")
+
+    # -- documents ----------------------------------------------------------------
+    reg.register(
+        "write_pdf",
+        "Generate a PDF document from scratch (report, briefing, resume draft) in the OSIRIS "
+        "workspace. Content is plain text: a line starting with '# ' becomes a heading, '- ' "
+        "becomes a bullet point, blank lines separate paragraphs.",
+        {"type": "object",
+         "properties": {"path": {"type": "string", "description": "relative path e.g. 'reports/weekly.pdf'"},
+                        "title": {"type": "string"},
+                        "content": {"type": "string"}},
+         "required": ["path", "title", "content"]},
+        lambda path, title, content: _write_pdf(path, title, content))
+
     # -- discord ----------------------------------------------------------------
     reg.register(
         "discord_send", "Post a message to the user's Discord channel (via webhook).",
@@ -834,3 +897,93 @@ def _gh_create_issue(repo: str, title: str, body: str) -> str:
                       headers=_gh_headers(), json={"title": title, "body": body}, timeout=15)
     r.raise_for_status()
     return f"created issue #{r.json()['number']}: {r.json()['html_url']}"
+
+
+def _analyze_image(path: str, question: str) -> str:
+    if not config.GEMINI_API_KEY:
+        return "error: GEMINI_API_KEY not set in .env — vision needs Gemini, no other configured provider supports it"
+    p = _allowed_path(path)
+    mime = _IMAGE_MIME_TYPES.get(p.suffix.lower())
+    if not mime:
+        return f"error: unsupported image type '{p.suffix}' — allowed: {', '.join(_IMAGE_MIME_TYPES)}"
+    data = p.read_bytes()
+    if len(data) > 20 * 1024 * 1024:
+        return "error: image too large (max 20MB)"
+    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    resp = client.models.generate_content(
+        model=config.CHAT_MODEL,
+        contents=[genai_types.Part.from_bytes(data=data, mime_type=mime), question])
+    return resp.text or "(no description returned)"
+
+
+def _chunk_text(text: str, size: int = _CHUNK_SIZE, overlap: int = _CHUNK_OVERLAP) -> list[str]:
+    chunks, i = [], 0
+    while i < len(text):
+        chunk = text[i:i + size]
+        if chunk.strip():
+            chunks.append(chunk)
+        i += size - overlap
+    return chunks
+
+
+def _index_folder(memory: Memory, path: str, max_files: int = 200) -> str:
+    root = _allowed_path(path)
+    if not root.is_dir():
+        return f"error: not a folder: {path}"
+    files = [f for f in root.rglob("*")
+             if f.is_file() and f.suffix.lower() in _INDEXABLE_EXTENSIONS
+             and not any(part.startswith(".") or part in _IGNORED_DIR_PARTS for part in f.parts)]
+    indexed, skipped = 0, 0
+    for f in files[:max_files]:
+        mtime = f.stat().st_mtime
+        if memory.doc_up_to_date(str(f), mtime):
+            skipped += 1
+            continue
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if not text.strip():
+            continue
+        for i, chunk in enumerate(_chunk_text(text)):
+            memory.index_chunk(str(f), i, chunk, mtime)
+        indexed += 1
+    return f"indexed {indexed} file(s), {skipped} already up to date ({len(files)} matched under {root})"
+
+
+def _pdf_safe(text: str) -> str:
+    """Core PDF fonts only support latin-1 — replace anything outside it rather than crash."""
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def _write_pdf(path: str, title: str, content: str) -> str:
+    from fpdf import FPDF
+    p = _safe_path(path if path.lower().endswith(".pdf") else path + ".pdf")
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    # new_x="LMARGIN": fpdf2's default leaves the cursor at the right margin after
+    # multi_cell, not the next line's left edge — without this every following
+    # multi_cell call has less and less width until it can't fit a character.
+    pdf.multi_cell(0, 10, _pdf_safe(title), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "", 11)
+
+    for line in content.splitlines():
+        line = _pdf_safe(line.rstrip())
+        if not line:
+            pdf.ln(4)
+        elif line.startswith("# "):
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.multi_cell(0, 8, line[2:], new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "", 11)
+        elif line.startswith("- "):
+            pdf.multi_cell(0, 7, f"  - {line[2:]}", new_x="LMARGIN", new_y="NEXT")
+        else:
+            pdf.multi_cell(0, 7, line, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.output(str(p))
+    return f"wrote PDF to {p}"
