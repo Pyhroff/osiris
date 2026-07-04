@@ -690,6 +690,45 @@ def test_circuit_breaker_interrupts_repeated_tool_thrashing(mem, reg):
     assert any("Stop retrying the same way" in (m.get("content") or "") for m in agent.history)
 
 
+def test_empty_response_retries_instead_of_surrendering(mem, reg):
+    """Observed live: Gemini returned zero text AND zero tool calls for a casual
+    mail request, twice in a row (local REPL and the Discord bot). The old code
+    gave up the whole turn on the first empty response — it should nudge and
+    retry with the remaining step budget instead."""
+    class FlakyLLM(BaseLLM):
+        name = "flaky"
+        calls = 0
+        def chat(self, messages, system="", tools=None):
+            self.calls += 1
+            if self.calls == 1:
+                return LLMResponse(text="", tool_calls=[])  # the observed failure mode
+            return LLMResponse(text="here are your emails")
+        def embed(self, text):
+            return StubLLM().embed(text)
+
+    llm = FlakyLLM()
+    agent = Agent(llm, mem, reg)
+    reply = agent.run("gimme my mail drtails")
+    assert reply == "here are your emails"
+    assert llm.calls == 2
+    assert any("produced no reply" in (m.get("content") or "") for m in agent.history)
+
+
+def test_repeated_empty_responses_eventually_hit_step_limit(mem, reg):
+    """If the model keeps returning nothing at all, it must not loop forever —
+    the existing step-limit message should still fire, just later."""
+    class AlwaysEmptyLLM(BaseLLM):
+        name = "empty"
+        def chat(self, messages, system="", tools=None):
+            return LLMResponse(text="", tool_calls=[])
+        def embed(self, text):
+            return StubLLM().embed(text)
+
+    agent = Agent(AlwaysEmptyLLM(), mem, reg)
+    reply = agent.run("anything")
+    assert "stopped: hit the step limit" in reply
+
+
 def test_gemini_skips_empty_assistant_turn():
     contents = _to_gemini_contents([
         {"role": "user", "content": "hi"},

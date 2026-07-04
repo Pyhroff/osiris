@@ -18,6 +18,7 @@ reminders/routines get DMed to you directly, on top of the usual toast/webhook.
 Your PC must be on and this process running for the bot to respond — it's a
 personal assistant on your machine, not a hosted cloud service.
 """
+import asyncio
 import sys
 
 from osiris import config
@@ -85,7 +86,9 @@ def main():
 
     @tasks.loop(seconds=daemon.POLL_SECONDS)
     async def poll_loop():
-        fired = daemon.poll_once(poll_memory, routines)
+        # poll_once is blocking (SQLite, an LLM call if a routine fires) — run
+        # it off-thread so it can't stall the Gateway heartbeat.
+        fired = await asyncio.to_thread(daemon.poll_once, poll_memory, routines)
         if not fired:
             return
         for uid in allowed:
@@ -111,12 +114,17 @@ def main():
         if message.author.id not in allowed:
             return  # silently ignored: no reply, no hint the bot exists
 
+        print(f"[discord bot] DM from {message.author.id}: {message.content!r}")
+        profile = pick_agent(message.content)
         async with message.channel.typing():
-            profile = pick_agent(message.content)
             try:
-                reply = agent.run(message.content, profile=profile)
+                # agent.run is blocking (LLM HTTP calls, tool I/O, sometimes an
+                # 8s cross-provider retry sleep) — off-thread so it can't stall
+                # the Gateway heartbeat and get the connection dropped mid-reply.
+                reply = await asyncio.to_thread(agent.run, message.content, profile=profile)
             except Exception as e:
                 reply = f"[error] {type(e).__name__}: {e}"
+        print(f"[discord bot] replying: {reply[:100]!r}")
         for chunk in _chunks(reply):
             await message.channel.send(chunk)
 

@@ -96,7 +96,16 @@ class Agent:
             self.history.append({"role": "assistant", "content": resp.text or None,
                                  "tool_calls": resp.tool_calls})
             if not resp.tool_calls:
-                return _strip_markdown(resp.text) if resp.text else "(no response)"
+                if resp.text:
+                    return _strip_markdown(resp.text)
+                # Truly empty response (no text, no tool call) — observed live with
+                # Gemini on casual/typo'd mail requests. Don't surrender the whole
+                # turn on this; nudge and let the loop retry with the remaining
+                # step budget instead of showing a dead-end "(no response)".
+                self.history.append({"role": "user", "content":
+                    "That produced no reply and no tool call. Answer the question directly, "
+                    "or call whichever tool actually addresses it."})
+                continue
 
             for tc in resp.tool_calls:
                 tc.args = tc.args or {}  # some models send null args for no-param tools
