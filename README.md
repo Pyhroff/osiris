@@ -37,7 +37,7 @@ each agent only sees its own tool subset (cheaper calls, sharper tool choice):
 | coding | local git (status/diff/log/commit/push/sync-check), desktop files, GitHub issues, memory |
 | email | Gmail search/read/drafts/send, memory |
 | learning | goal planner, milestones, scheduler, memory |
-| research | Google Drive search/read, desktop files, workspace notes, memory |
+| research | Google Drive search/read, desktop files, local doc index/search, vision, PDF, workspace notes, memory |
 | personal | everything incl. Discord + Calendar (default fallback) |
 
 ## Setup
@@ -145,5 +145,9 @@ and integration tools are verified to fail gracefully without credentials.
       (`/reflect`, on REPL exit, and every 8 web turns in the background —
       deduplicated by embedding similarity)
 - [x] CI: pytest on Ubuntu + Windows
+- [x] Vision: `analyze_image` — describe or answer questions about a screenshot/photo (Gemini)
+- [x] Local document index: `index_folder` + `search_docs` — semantic search over a project
+      folder's files, not just fs_find-by-name
+- [x] `write_pdf` — generate a PDF report/briefing from scratch, not just workspace `.md` notes
 - [ ] Knowledge graph over memories (entities + relations, not just embeddings)
 - [ ] Notion integration

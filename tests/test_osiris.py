@@ -143,7 +143,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 53
+    assert len(specs) == 57
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -190,6 +190,64 @@ def test_git_list_repos_finds_repos(reg, tmp_path):
     out = reg.execute("git_list_repos", {})
     assert "myrepo" in out and "notarepo" not in out
     assert "uncommitted_changes" in out  # one call now reports status too
+
+
+# -- vision ----------------------------------------------------------------
+
+def test_analyze_image_requires_gemini_key(reg, monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    out = reg.execute("analyze_image", {"path": "shot.png"})
+    assert "GEMINI_API_KEY" in out
+
+
+def test_analyze_image_rejects_unsupported_type(reg, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "fake-key")
+    (tmp_path / "doc.pdf").write_bytes(b"%PDF-1.4")
+    out = reg.execute("analyze_image", {"path": str(tmp_path / "doc.pdf")})
+    assert "unsupported image type" in out
+
+
+# -- local document index ----------------------------------------------------
+
+def test_index_folder_and_search_docs(reg, mem, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "auth.py").write_text("def login(user, password):\n    check_credentials(user, password)\n", encoding="utf-8")
+    (proj / "README.md").write_text("A demo project with nothing about login.\n", encoding="utf-8")
+    (proj / "logo.png").write_bytes(b"\x89PNG")  # non-indexable, should be skipped
+
+    out = reg.execute("index_folder", {"path": str(proj)})
+    assert "indexed 2 file(s)" in out
+
+    hits = mem.search_docs("login credentials", top_k=5, min_score=0.0)
+    assert any("auth.py" in h["path"] for h in hits)
+
+    # re-running skips unchanged files
+    out2 = reg.execute("index_folder", {"path": str(proj)})
+    assert "indexed 0 file(s), 2 already up to date" in out2
+
+
+def test_search_docs_empty_before_indexing(mem):
+    assert mem.search_docs("anything") == []
+
+
+# -- PDF generation ----------------------------------------------------------
+
+def test_write_pdf_creates_file(reg):
+    out = reg.execute("write_pdf", {
+        "path": "reports/weekly.pdf", "title": "Weekly Report",
+        "content": "# Summary\nThings went well.\n\n- did X\n- did Y\n"})
+    assert "wrote PDF" in out
+    pdf_path = config.WORKSPACE / "reports" / "weekly.pdf"
+    assert pdf_path.exists()
+    assert pdf_path.read_bytes().startswith(b"%PDF")
+
+
+def test_write_pdf_adds_extension_and_sandboxes(reg):
+    out = reg.execute("write_pdf", {"path": "notes", "title": "T", "content": "body"})
+    assert (config.WORKSPACE / "notes.pdf").exists()
+    assert "escapes" in reg.execute("write_pdf", {"path": "../escape", "title": "T", "content": "x"})
 
 
 @pytest.mark.skipif(subprocess.run(["git", "--version"], capture_output=True).returncode != 0,

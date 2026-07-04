@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS applications (
     id INTEGER PRIMARY KEY, company TEXT NOT NULL, role TEXT, contact_email TEXT,
     status TEXT DEFAULT 'applied', applied_date TEXT NOT NULL, notes TEXT,
     created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS doc_chunks (
+    id INTEGER PRIMARY KEY, path TEXT NOT NULL, chunk_index INTEGER NOT NULL,
+    text TEXT NOT NULL, embedding TEXT, mtime REAL NOT NULL, indexed_at TEXT NOT NULL,
+    UNIQUE(path, chunk_index));
 """
 
 
@@ -212,3 +216,56 @@ class Memory:
         cur = self.db.execute("UPDATE applications SET status=? WHERE id=?", (status, application_id))
         self.db.commit()
         return cur.rowcount > 0
+
+    # -- local document index (fs_* is on-demand reads; this is the searchable index) ---
+    def doc_up_to_date(self, path: str, mtime: float) -> bool:
+        row = self.db.execute("SELECT mtime FROM doc_chunks WHERE path=? LIMIT 1", (path,)).fetchone()
+        return bool(row) and row["mtime"] >= mtime
+
+    def index_chunk(self, path: str, chunk_index: int, text: str, mtime: float):
+        emb = None
+        if config.EMBEDDINGS_ENABLED:
+            try:
+                emb = json.dumps(self.llm.embed(text))
+            except Exception:
+                emb = None  # degrade gracefully; keyword fallback still finds it
+        self.db.execute(
+            "INSERT INTO doc_chunks (path, chunk_index, text, embedding, mtime, indexed_at) "
+            "VALUES (?,?,?,?,?,?) ON CONFLICT(path, chunk_index) DO UPDATE SET "
+            "text=excluded.text, embedding=excluded.embedding, mtime=excluded.mtime, "
+            "indexed_at=excluded.indexed_at",
+            (path, chunk_index, text, emb, mtime, datetime.now().isoformat(timespec="seconds")))
+        self.db.commit()
+
+    def search_docs(self, query: str, top_k: int = 5, min_score: float = 0.3) -> list[dict]:
+        rows = self.db.execute("SELECT path, text, embedding FROM doc_chunks").fetchall()
+        if not rows:
+            return []
+        if not config.EMBEDDINGS_ENABLED:
+            words = [w for w in query.lower().split() if len(w) > 3]
+            seen = {}
+            for r in rows:
+                if r["path"] not in seen and any(w in r["text"].lower() for w in words):
+                    seen[r["path"]] = r["text"]
+            return [{"path": p, "snippet": t[:300]} for p, t in list(seen.items())[:top_k]]
+        try:
+            q = self.llm.embed(query)
+        except Exception:
+            return []
+        scored = []
+        for r in rows:
+            if not r["embedding"]:
+                continue
+            vec = json.loads(r["embedding"])
+            if len(vec) == len(q):
+                scored.append((_cosine(q, vec), r["path"], r["text"]))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best_per_path: dict[str, tuple] = {}
+        for score, path, text in scored:
+            if score < min_score:
+                break
+            if path not in best_per_path:
+                best_per_path[path] = (score, text)
+            if len(best_per_path) >= top_k:
+                break
+        return [{"path": p, "score": round(s, 3), "snippet": t[:300]} for p, (s, t) in best_per_path.items()]

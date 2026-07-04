@@ -130,14 +130,14 @@ Each agent is a **persona + a restricted tool subset + routing keywords**. Small
 | Agent | Triggers on | Tools | Notes |
 |---|---|---|---|
 | **architect** | "build me", "build a", "scaffold", "architecture", "full project", "high end" | scaffold_project, fs_*, git_init/status/commit/push, github_create_repo/pr, **run_project_command** | Designs + writes an entire project, then **mandatorily verifies it** with a real `run_project_command` run before claiming done — up to 3 fix attempts on failure (fs_edit + re-run), see §5b. Defaults to `OSIRIS FILES/`. Highest priority tiebreak among build-ish phrasing. |
-| **coding** | "github", "repo", "commit", "push", "diff", "pr ", "desktop", "sync" | full git/github toolset + fs_* + scaffold_project + **run_project_command** | General repo work: status checks, explaining a codebase, modifying files, triaging issues, actually running a repo's tests/build/lint. |
-| **redteam** | "pentest", "exploit", "recon", "ctf", "bug bounty", "sqli/xss", "nmap", "vapt" | fs_*, scaffold_project, git, **run_recon**, **cve_lookup** | Bug-hunt log tracking, PoC scaffolding, live recon (nmap/whois/dig/nslookup/ping/curl) against **authorized targets only**, live CVE data from NVD. |
-| **blueteam** | "blue team", "detection", "incident response", "soc ", "siem", "ioc" | fs_*, scaffold_project, git, **run_recon** (IOC lookups), **cve_lookup** | Detection-rule drafting, IR playbooks, no live SIEM connection. |
+| **coding** | "github", "repo", "commit", "push", "diff", "pr ", "desktop", "sync" | full git/github toolset + fs_* + scaffold_project + **run_project_command** + **analyze_image**, **index_folder**/**search_docs**, **write_pdf** | General repo work: status checks, explaining a codebase, modifying files, triaging issues, actually running a repo's tests/build/lint. |
+| **redteam** | "pentest", "exploit", "recon", "ctf", "bug bounty", "sqli/xss", "nmap", "vapt" | fs_*, scaffold_project, git, **run_recon**, **cve_lookup**, **analyze_image**, **write_pdf** | Bug-hunt log tracking, PoC scaffolding, live recon (nmap/whois/dig/nslookup/ping/curl) against **authorized targets only**, live CVE data from NVD. |
+| **blueteam** | "blue team", "detection", "incident response", "soc ", "siem", "ioc" | fs_*, scaffold_project, git, **run_recon** (IOC lookups), **cve_lookup**, **analyze_image**, **write_pdf** | Detection-rule drafting, IR playbooks, no live SIEM connection. |
 | **aisec** | "prompt injection", "jailbreak", "ai security", "llm security", "guardrail", "gcg", "crescendo" | fs_*, scaffold_project, git | LLM red-teaming methodology, adversarial test design — the PromptStrike/DarkDecoder domain. No live model API calls. |
 | **email** | "email", "mail", "inbox", "unread", "draft", "cold email", "outreach", "application" | gmail_search/read/send/create_draft/reply, **web_search**, **track_application/list_applications/update_application_status**, schedule_task | Never sends without your explicit confirmation; always prefers drafts. Cold outreach is always one *personalized* draft per company, never a templated blast — see §14. |
 | **learning** | "learn", "study", "goal", "roadmap", "milestone" | create_plan, list_goals, complete_milestone, schedule_task, list_tasks, complete_task | Long-horizon goal planning with due-dated milestones. |
-| **research** | "research", "investigate", "summarize", "drive", "docs", "search the web", "look up" | write_file/read_file/list_files, drive_search/read, fs_*, **web_search** | Synthesizes findings from the live web + Drive + memory into workspace notes. |
-| **personal** | fallback (no keyword match) | **all 53 tools** | The expensive path — use it for genuinely mixed-domain asks, not routine ones. |
+| **research** | "research", "investigate", "summarize", "drive", "docs", "search the web", "look up" | write_file/read_file/list_files, drive_search/read, fs_*, **web_search**, **read_pdf**, **analyze_image**, **index_folder**/**search_docs**, **write_pdf** | Synthesizes findings from the live web + Drive + local indexed docs + memory into workspace notes, or a generated PDF. |
+| **personal** | fallback (no keyword match) | **all 57 tools** | The expensive path — use it for genuinely mixed-domain asks, not routine ones. |
 
 Routing is pure keyword weighting in [agents.py](osiris/agents.py) — `pick_agent()` sums
 `hits × keyword_weight` per profile, ties broken by `priority`. No ML classifier, so it costs
@@ -145,7 +145,7 @@ nothing and never fails.
 
 ---
 
-## 5. Tool reference (53 tools)
+## 5. Tool reference (57 tools)
 
 **Memory** — `remember`, `recall`, `list_memories`, `forget`, `current_datetime`
 **Journal** — `note` (quick-capture a timestamped line into workspace/journal/YYYY-MM-DD.md), `read_journal`
@@ -164,6 +164,9 @@ nothing and never fails.
 **Calendar** — `calendar_list_events`, `calendar_create_event`
 **Drive** — `drive_search`, `drive_read`
 **Discord** — `discord_send`
+**Vision** — `analyze_image` (describe/answer questions about a screenshot or photo — needs `GEMINI_API_KEY`, the only configured provider here with vision)
+**Local document index** — `index_folder` (embeds a folder's text/code files, skips unchanged files on re-run), `search_docs` (semantic search over what's been indexed)
+**Documents** — `write_pdf` (generate a PDF from scratch in the workspace — heading/bullet/paragraph plain text, no markdown needed)
 
 ### 5b. The generate → test → fix loop (architect)
 
@@ -443,6 +446,10 @@ restart. Changes to `.env` require a restart to take effect (no hot reload).
 "what's the latest on [X]"                     → research/personal: web_search
 "draft outreach to Cyberops, hr@cyberops.com"  → email: personalized draft + track_application
 "what's my application pipeline look like?"    → email: list_applications
+"what does this screenshot say?"               → analyze_image (needs GEMINI_API_KEY)
+"index my StylesOS folder"                     → index_folder, then search_docs works on it
+"find the file that handles auth"              → search_docs (after index_folder)
+"turn this into a PDF"                         → write_pdf, saved to workspace/
 ```
 
 ---
