@@ -44,7 +44,19 @@ def _allowed_ids() -> set[int]:
 
 
 def _chunks(text: str, size: int = DISCORD_MSG_LIMIT) -> list[str]:
-    return [text[i:i + size] for i in range(0, len(text), size)] or ["(no response)"]
+    """Split on the last whitespace before the limit, not a blind character
+    cut — otherwise a long reply can slice a word in half mid-sentence."""
+    if not text:
+        return ["(no response)"]
+    out = []
+    while len(text) > size:
+        cut = text.rfind(" ", 0, size)
+        if cut <= 0:  # no whitespace to break on (one giant token) — fall back to a hard cut
+            cut = size
+        out.append(text[:cut])
+        text = text[cut:].lstrip()
+    out.append(text)
+    return out
 
 
 def main():
