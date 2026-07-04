@@ -18,6 +18,13 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")  # free, no card: tavily.com
 
+# Mobile dispatcher (discord_bot.py / `osiris bot`) — a different credential
+# from the webhook above (that's send-only notifications; this is a real bot
+# that reads and replies to your DMs). Only these Discord user ids get a
+# response; everyone else who DMs the bot is silently ignored.
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
+DISCORD_ALLOWED_USERS = os.getenv("OSIRIS_DISCORD_ALLOWED_USERS", "")
+
 # Model router: providers tried in this order, failing over on any error.
 # Unconfigured ones are skipped, so listing them all costs nothing.
 PROVIDER_CHAIN = os.getenv(

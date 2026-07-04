@@ -331,6 +331,34 @@ undifferentiated color block. A **CLEAR** button sits in the header next to the 
 
 ---
 
+## 9b. Mobile dispatcher (`osiris bot`)
+
+A real Discord bot (`discord_bot.py`) — not the send-only webhook from §8, a genuine bidirectional
+chat. Message OSIRIS from the Discord app on your phone, from anywhere with internet (mobile
+data works, no VPN/tunnel to your home network needed).
+
+**Security model**: only DMs from `OSIRIS_DISCORD_ALLOWED_USERS` (your Discord user id) get a
+response. Server messages are ignored outright — DM-only surface, smallest exposure. Anyone
+else who DMs the bot gets silence: no reply, no hint it exists. This is a new *front door*, not
+new *permissions* — every tool's own guardrails (`run_recon`'s authorization gate,
+`run_project_command`'s allowlist, confirm-before-act persona rules) apply identically here.
+
+**Setup**:
+1. discord.com/developers/applications → New Application → Bot tab → enable **Message Content
+   Intent** under Privileged Gateway Intents → Reset Token, copy it → `.env`: `DISCORD_BOT_TOKEN=`
+2. Discord app → User Settings → Advanced → enable Developer Mode → right-click your own
+   username → Copy User ID → `.env`: `OSIRIS_DISCORD_ALLOWED_USERS=<your id>` (comma-separated
+   for more than one)
+3. OAuth2 → URL Generator → scope `bot`, permissions Send Messages + Read Message History (no
+   admin) → invite it to a small private server with just you, then DM it directly
+4. `osiris bot` (needs `discord.py` — already in `requirements.txt`)
+
+**The honest limit, unavoidable**: your PC has to actually be on and this process running.
+OSIRIS is a program on your machine, not a hosted cloud service — if the PC's off or asleep,
+the bot goes offline and messages just wait until it's back.
+
+---
+
 ## 10. Folder map
 
 ```
@@ -376,6 +404,8 @@ OPENAI_API_KEY=
 # integrations
 GITHUB_TOKEN=                    # repo scope — git push, github_* tools
 DISCORD_WEBHOOK_URL=             # daemon notifications mirror here
+DISCORD_BOT_TOKEN=               # osiris bot — mobile dispatcher, see §9b
+OSIRIS_DISCORD_ALLOWED_USERS=    # your Discord user id(s), comma-separated
 
 # git identity for git_commit
 OSIRIS_GIT_NAME=Pyhroff

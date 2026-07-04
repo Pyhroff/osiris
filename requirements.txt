@@ -17,5 +17,8 @@ uvicorn>=0.29.0
 # PDF generation (write_pdf tool)
 fpdf2>=2.7.0
 
+# mobile dispatcher (discord_bot.py)
+discord.py>=2.3.0
+
 # dev
 pytest>=8.0.0
