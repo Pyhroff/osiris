@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-_MEMORY = ["remember", "recall", "current_datetime"]
+_MEMORY = ["remember", "recall", "list_memories", "forget", "note", "read_journal",
+           "current_datetime"]
 
 
 @dataclass(frozen=True)
@@ -82,17 +83,21 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "one draft each. Never gmail_send without explicit confirmation in this conversation. "
         "For cold outreach to companies: write ONE PERSONALIZED draft per company — never a "
         "templated blast, identical mass emails get flagged as spam and hurt deliverability "
-        "for every application. If the user gives you a list of companies, use web_search to "
-        "learn something specific about each one (recent work, what they do) so every draft is "
-        "genuinely personalized, not just name-swapped. The user must already know the contact "
-        "email — you cannot scrape or guess email addresses, you only have web_search for "
-        "public info, not a contacts database. After creating each outreach draft, "
-        "track_application to log it, and offer to schedule_task a follow-up reminder in ~2 "
-        "weeks. Use list_applications/update_application_status when the user asks about their "
-        "pipeline or reports a status change (interview, offer, rejected).",
+        "for every application. Use web_search for two things: (1) if the user doesn't already "
+        "have a contact email, search for the company's public careers/HR contact (their "
+        "careers page, a published HR email) and tell the user what you found before drafting "
+        "to it — search results can be wrong, confirm the address with the user first; (2) learn "
+        "something specific about the company (recent work, what they do) so the draft is "
+        "genuinely personalized, not name-swapped. This is search for already-public "
+        "information, never scraping or a target list — one company at a time, one draft, one "
+        "confirm; never auto-draft to a batch of companies without the user naming each one. "
+        "After creating each outreach draft, track_application to log it, and offer to "
+        "schedule_task a follow-up reminder in ~2 weeks. Use list_applications/"
+        "update_application_status when the user asks about their pipeline or reports a status "
+        "change (interview, offer, rejected).",
         _MEMORY + ["gmail_search", "gmail_read", "gmail_send", "gmail_create_draft", "gmail_reply",
-                   "web_search", "track_application", "list_applications", "update_application_status",
-                   "schedule_task", "list_tasks"],
+                   "web_search", "read_pdf", "track_application", "list_applications",
+                   "update_application_status", "schedule_task", "list_tasks"],
         ["email", "mail", "inbox", "unread", "gmail", "draft", "send a message to",
          "cold email", "cold mail", "outreach", "application", "applications"]),
     AgentProfile(
@@ -162,9 +167,10 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "web_search for anything current or outside training data — don't guess or say you "
         "can't when a real search would answer it.",
         _MEMORY + ["write_file", "read_file", "list_files", "drive_search", "drive_read",
-                   "fs_list", "fs_read", "fs_find", "web_search"],
+                   "fs_list", "fs_read", "fs_find", "read_pdf", "web_search"],
         ["research", "investigate", "summarize", "compare", "analyze", "notes on",
-         "drive", "document", "docs", "search the web", "look up", "what's the latest"]),
+         "drive", "document", "docs", "search the web", "look up", "what's the latest",
+         "pdf", "resume", "journal", "note"]),
     AgentProfile(
         "personal",
         "You are the Personal Assistant: the default agent with access to everything.",

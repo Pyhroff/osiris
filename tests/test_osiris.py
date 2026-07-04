@@ -68,6 +68,38 @@ def test_memory_store_and_recall(mem, monkeypatch):
     assert hits and "IBM Quantum" in hits[0]
 
 
+def test_forget_deletes_by_id(mem):
+    mid = mem.remember("Cybot is a specialized cybersecurity OSIRIS agent")
+    assert any(m["id"] == mid for m in mem.list_memories())
+    assert mem.forget(mid) is True
+    assert not any(m["id"] == mid for m in mem.list_memories())
+    assert mem.forget(999999) is False  # already gone / never existed
+
+
+def test_journal_capture_and_read(reg):
+    assert "noted in journal" in reg.execute("note", {"text": "learned about JWT replay attacks"})
+    reg.execute("note", {"text": "second note today"})
+    out = reg.execute("read_journal", {})
+    assert "JWT replay" in out and "second note" in out
+    assert "no journal entries" in reg.execute("read_journal", {"date": "2000-01-01"})
+
+
+def test_read_pdf_rejects_non_pdf_and_missing(reg, tmp_path):
+    (tmp_path / "notes.txt").write_text("plain text", encoding="utf-8")
+    assert "not a PDF" in reg.execute("read_pdf", {"path": str(tmp_path / "notes.txt")})
+    out = reg.execute("read_pdf", {"path": str(tmp_path / "ghost.pdf")})
+    assert "outside allowed" in out or "could not read" in out or "FileNotFound" in out
+
+
+def test_forget_tool_requires_valid_id(reg):
+    mem_id_out = reg.execute("remember", {"text": "temp fact to delete"})
+    mid = int(mem_id_out.split("#")[1])
+    listed = json.loads(reg.execute("list_memories", {}))
+    assert any(m["id"] == mid for m in listed)
+    assert reg.execute("forget", {"memory_id": mid}) == "forgotten"
+    assert reg.execute("forget", {"memory_id": mid}) == "error: no such memory"
+
+
 def test_recall_backfills_null_embeddings(mem, monkeypatch):
     monkeypatch.setattr(config, "EMBEDDINGS_ENABLED", True)
     mem.db.execute("INSERT INTO memories (text, kind, embedding, created_at) VALUES (?,?,?,?)",
@@ -111,7 +143,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 48
+    assert len(specs) == 53
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 

@@ -67,5 +67,5 @@ USER_PROFILE = os.getenv("OSIRIS_USER_PROFILE", "")
 # authorization to test. Comma-separated, e.g. OSIRIS_AUTHORIZED_TARGETS=lab.example.com
 AUTHORIZED_TARGETS = os.getenv("OSIRIS_AUTHORIZED_TARGETS", "")
 
-MAX_AGENT_STEPS = 12  # hard cap on tool-call loops per user turn
+MAX_AGENT_STEPS = 15  # hard cap on tool-call loops per user turn (profiles can override)
 MAX_HISTORY = 60      # keep sessions from growing unbounded (trimmed at turn boundaries)

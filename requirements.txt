@@ -1,6 +1,7 @@
 google-genai>=1.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
+pdfplumber>=0.11.0   # read_pdf tool (resumes, JDs, papers)
 
 # Gmail + Calendar (OAuth)
 google-api-python-client>=2.100.0

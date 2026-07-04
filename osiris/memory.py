@@ -98,6 +98,16 @@ class Memory:
         return [r["text"] for r in rows
                 if any(w in r["text"].lower() for w in words)][:top_k]
 
+    def list_memories(self, limit: int = 50) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT id, text, kind, created_at FROM memories ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def forget(self, memory_id: int) -> bool:
+        cur = self.db.execute("DELETE FROM memories WHERE id=?", (memory_id,))
+        self.db.commit()
+        return cur.rowcount > 0
+
     def _backfill_embeddings(self, rows, limit: int = 5):
         """Embed memories saved while embeddings were unavailable, a few per recall."""
         missing = [r for r in rows if not r["embedding"]][:limit]

@@ -27,11 +27,18 @@ you want the full system (REPL/web for talking to it, daemon for it to work whil
 ```
 /goals      active goals + milestone progress
 /tasks      pending scheduled reminders
+/status     health check — providers, integrations configured, memory/goal/task counts
+/model      which provider answered last + who's cooling down right now
+/loop <seconds> <prompt>   repeat a prompt on an interval until Ctrl+C
 /reflect    distill this session into long-term memory right now
 /clear      wipe this session's conversation (long-term memories are kept)
 /help       this list
 /quit       exit (auto-reflects if the session had ≥3 turns)
 ```
+`/loop` is a foreground, immediate repeat — distinct from the daemon's scheduled routines,
+which run in the background once a day regardless of whether the REPL is open. Use `/loop` for
+"watch this while I work" (e.g. `/loop 300 check unread mail`); use routines for "every
+morning, unattended."
 Anything else is sent straight to the agent. Web UI has the same reset as a **CLEAR** button
 in the header (`POST /api/clear`).
 
@@ -130,7 +137,7 @@ Each agent is a **persona + a restricted tool subset + routing keywords**. Small
 | **email** | "email", "mail", "inbox", "unread", "draft", "cold email", "outreach", "application" | gmail_search/read/send/create_draft/reply, **web_search**, **track_application/list_applications/update_application_status**, schedule_task | Never sends without your explicit confirmation; always prefers drafts. Cold outreach is always one *personalized* draft per company, never a templated blast — see §14. |
 | **learning** | "learn", "study", "goal", "roadmap", "milestone" | create_plan, list_goals, complete_milestone, schedule_task, list_tasks, complete_task | Long-horizon goal planning with due-dated milestones. |
 | **research** | "research", "investigate", "summarize", "drive", "docs", "search the web", "look up" | write_file/read_file/list_files, drive_search/read, fs_*, **web_search** | Synthesizes findings from the live web + Drive + memory into workspace notes. |
-| **personal** | fallback (no keyword match) | **all 48 tools** | The expensive path — use it for genuinely mixed-domain asks, not routine ones. |
+| **personal** | fallback (no keyword match) | **all 53 tools** | The expensive path — use it for genuinely mixed-domain asks, not routine ones. |
 
 Routing is pure keyword weighting in [agents.py](osiris/agents.py) — `pick_agent()` sums
 `hits × keyword_weight` per profile, ties broken by `priority`. No ML classifier, so it costs
@@ -138,13 +145,14 @@ nothing and never fails.
 
 ---
 
-## 5. Tool reference (48 tools)
+## 5. Tool reference (53 tools)
 
-**Memory** — `remember`, `recall`, `current_datetime`
+**Memory** — `remember`, `recall`, `list_memories`, `forget`, `current_datetime`
+**Journal** — `note` (quick-capture a timestamped line into workspace/journal/YYYY-MM-DD.md), `read_journal`
 **Planning** — `create_plan`, `list_goals`, `complete_milestone`
 **Scheduler** — `schedule_task`, `list_tasks`, `complete_task`
 **Workspace (sandboxed to `./workspace`)** — `write_file`, `read_file`, `list_files`
-**Desktop filesystem (sandboxed to `ALLOWED_DIRS`)** — `fs_list`, `fs_read`, `fs_find`, `fs_write`, `fs_edit`
+**Desktop filesystem (sandboxed to `ALLOWED_DIRS`)** — `fs_list`, `fs_read`, `fs_find`, `fs_write`, `fs_edit`, `read_pdf` (extract text from a PDF — resumes, JDs, papers; needs `pdfplumber`, scanned/image PDFs won't extract)
 **Project scaffolding** — `scaffold_project` (writes an entire project tree in one call)
 **Local git** — `git_list_repos`, `git_init`, `git_status`, `git_diff`, `git_log`, `git_commit`, `git_push`, `git_sync_check`
 **GitHub** — `github_create_repo`, `github_create_pr`, `github_list_repos`, `github_list_issues`, `github_create_issue`
@@ -253,9 +261,10 @@ SQLite at `osiris.db`, six tables: `memories`, `goals`/`milestones`, `tasks`, `r
   return only a memory sharing a literal word with the query, nothing else).
 - **Reflection**: at REPL `/quit` or every 8 web-UI turns, a pass distills the session into
   0-5 durable facts, deduplicated against existing memories at ≥0.90 cosine similarity.
-- **No `forget` tool yet** — memories can only be added or superseded by a new `remember`
-  call, never deleted. If OSIRIS stores something wrong, the fix today is telling it the
-  corrected fact, not erasing the old one.
+- **`forget` exists now** — `list_memories` shows every stored fact with its id, `forget(id)`
+  permanently deletes one. Confirm-first, same convention as the other destructive tools; not
+  hard-gated, so a misbehaving model could in principle skip confirming — same caveat as
+  everything else in this list.
 
 ---
 
@@ -327,7 +336,7 @@ OSIRIS/                    the app itself
                             memory.py, planner.py, reflection.py, config.py,
                             google_services.py, providers/
   workspace/                write_file/read_file sandbox + briefings/
-  tests/                    52 offline pytest tests
+  tests/                    56 offline pytest tests
   osiris.db                 SQLite: memories, goals, tasks, routines
   .env                      your keys — OSIRIS never writes to this file
   credentials.json /
@@ -404,12 +413,12 @@ restart. Changes to `.env` require a restart to take effect (no hot reload).
 - **Web search exists now** (`web_search`, Tavily) — but it needs `TAVILY_API_KEY` in `.env`
   (free, no card, at tavily.com) or every call returns a clear "not configured" error instead
   of silently failing.
-- **Cold outreach**: `email` agent will only draft — never send — and is instructed to write
-  one personalized email per company, never a templated blast. It cannot find or guess contact
-  emails itself (`web_search` finds public info, not a contacts database) — you supply the
-  contact, it drafts and tracks. See §14.
-- **No `forget`**: see §7. A genuine gap if you ever store something sensitive by mistake —
-  today the fix is manually editing `osiris.db` with a SQLite tool, not asking OSIRIS.
+- **Cold outreach**: `email` agent will only draft — never send — and writes one personalized
+  email per company, never a templated blast. It can now use `web_search` to find a company's
+  already-*public* careers/HR contact if you don't already have one (and tells you what it
+  found before drafting to it, since search can be wrong) — this is search, not scraping, and
+  it's still one company/one draft/one confirm at a time. It will never auto-draft to a batch
+  of companies without you naming each one. See §14.
 - **Free-tier code quality**: expect solid architecture/structure/git hygiene from
   `scaffold_project`, but treat the actual logic as a first draft, not ship-ready — these are
   free models, not Opus-tier reasoning.
@@ -446,13 +455,18 @@ own benefit as much as anything else: identical templated blasts get Gmail-flagg
 spot a mail-merge from a mile away.
 
 **What it does:**
-1. You supply the company + a contact email you've already sourced (LinkedIn, a careers page,
-   a referral — OSIRIS has no contacts database and won't guess or scrape one).
-2. It `web_search`es the company so the draft references something real and specific, not a
-   name-swapped template.
+1. You name the company. If you already have a contact, give it; if not, it `web_search`es for
+   the company's public careers/HR contact and shows you what it found before using it —
+   search-based discovery of already-public info, not scraping, and it always confirms before
+   drafting to an address it found itself.
+2. It also searches the company generally, so the draft references something real and
+   specific, not a name-swapped template.
 3. `gmail_create_draft`/`gmail_reply` — always a draft, never sent without you saying so.
 4. `track_application` logs it (company, role, contact, status, date).
 5. Offers a `schedule_task` follow-up reminder ~2 weeks out.
+
+This is strictly one-company-at-a-time. Asking for outreach to "these 10 companies" gets you
+10 individual searches/drafts/confirms in sequence, never a silent batch blast.
 
 **Managing your pipeline:**
 ```

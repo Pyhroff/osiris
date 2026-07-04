@@ -1,5 +1,6 @@
 """OSIRIS — personal AI operating system. Entry point / REPL."""
 import sys
+import time
 
 from osiris import config
 from osiris.agent import Agent
@@ -22,6 +23,9 @@ BANNER = r"""
 HELP = """commands:
   /goals     show active goals & milestones
   /tasks     show pending scheduled tasks
+  /status    health check — providers, integrations configured, memory/goal/task counts
+  /model     which provider answered last + who's cooling down right now
+  /loop <seconds> <prompt>   repeat a prompt on an interval until Ctrl+C
   /reflect   distill this session into long-term memories now
   /clear     wipe this session's conversation (long-term memories are kept)
   /help      this message
@@ -101,6 +105,41 @@ def main():
                 print("no pending tasks.")
             for t in tasks:
                 print(f"· [#{t['id']}] {t['description']} — due {t['due']}")
+        elif line == "/model":
+            print(f"chain: {llm.describe()}")
+            now = time.time()
+            cooling = [f"{n} ({int(until - now)}s left)" for n, until in llm._cooldown.items() if until > now]
+            print("cooling down: " + ", ".join(cooling) if cooling else "cooling down: none")
+            via = getattr(llm, "active", "")
+            print(f"last answered by: {via or '(nothing sent yet this session)'}")
+        elif line == "/status":
+            print(f"providers: {llm.describe()}")
+            print(f"gmail/calendar/drive: {'configured' if (config.ROOT / 'credentials.json').exists() else 'not set up — credentials.json missing'}")
+            print(f"github: {'configured' if config.GITHUB_TOKEN else 'not set — GITHUB_TOKEN empty'}")
+            print(f"web search: {'configured' if config.TAVILY_API_KEY else 'not set — TAVILY_API_KEY empty'}")
+            print(f"discord: {'configured' if config.DISCORD_WEBHOOK_URL else 'not set'}")
+            print(f"memories stored: {memory.db.execute('SELECT COUNT(*) FROM memories').fetchone()[0]}")
+            print(f"active goals: {len(memory.list_goals())}")
+            print(f"pending tasks: {len(memory.list_tasks())}")
+        elif line.startswith("/loop "):
+            rest = line[len("/loop "):].split(" ", 1)
+            if len(rest) < 2 or not rest[0].isdigit():
+                print("usage: /loop <seconds> <prompt>")
+            else:
+                interval, prompt = int(rest[0]), rest[1]
+                profile = pick_agent(prompt)
+                print(f"looping every {interval}s — Ctrl+C to stop")
+                try:
+                    while True:
+                        try:
+                            reply = agent.run(prompt, profile=profile)
+                            via = getattr(llm, "active", "")
+                            print(f"\nosiris › {reply}" + (f"\n  [{via}]" if via else ""))
+                        except Exception as e:
+                            print(f"\n[error] {type(e).__name__}: {e}")
+                        time.sleep(interval)
+                except KeyboardInterrupt:
+                    print("\nloop stopped.")
         else:
             profile = pick_agent(line)
             if profile.key != "personal":

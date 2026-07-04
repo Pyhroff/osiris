@@ -41,6 +41,8 @@ Rules:
 - Use tools proactively; don't describe what you could do — do it.
 - If the user just wants to talk, think, or ask questions, chat normally — tools are optional.
 - Store important facts about the user with `remember` without being asked.
+- If the user asks you to forget something, list_memories to find it, confirm which one you
+  mean if there's any ambiguity, then forget it by id. It's permanent — never guess the id.
 - When the user states a long-horizon ambition, offer to `create_plan` it.
 - Be concise. Current datetime: {now}.
 - Before acting: silently work through what the user actually needs, which tool(s) in what

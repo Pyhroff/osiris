@@ -131,6 +131,19 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
         lambda query: json.dumps(memory.recall(query, top_k=5)) or "no relevant memories")
 
+    reg.register(
+        "list_memories", "List stored memories with their ids, most recent first. Use this "
+                         "to find the right id before calling forget.",
+        {"type": "object", "properties": {"limit": {"type": "integer", "description": "default 50"}}},
+        lambda limit=50: memory.list_memories(limit) or "no memories stored")
+
+    reg.register(
+        "forget", "Permanently delete a memory by its id (from list_memories or recall). "
+                  "This cannot be undone — always confirm with the user which memory and "
+                  "get an explicit go-ahead before calling this.",
+        {"type": "object", "properties": {"memory_id": {"type": "integer"}}, "required": ["memory_id"]},
+        lambda memory_id: "forgotten" if memory.forget(memory_id) else "error: no such memory")
+
     # -- planning ----------------------------------------------------------------
     reg.register(
         "create_plan", "Break a long-horizon goal into milestones with due dates and persist it.",
@@ -197,6 +210,28 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         "fs_read", "Read a file from the user's Desktop/project folders.",
         {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
         lambda path: _fs_read(path))
+
+    reg.register(
+        "read_pdf", "Extract the text of a PDF on the user's Desktop/project folders — resumes, "
+                    "job descriptions, papers, coursework. Use before tailoring outreach to a JD "
+                    "or summarizing a document.",
+        {"type": "object",
+         "properties": {"path": {"type": "string", "description": "e.g. 'Resume.pdf' or a full path"},
+                        "max_pages": {"type": "integer", "description": "default 20"}},
+         "required": ["path"]},
+        lambda path, max_pages=20: _read_pdf(path, max_pages))
+
+    reg.register(
+        "note", "Quick-capture a note/idea/TIL into today's journal (workspace/journal/"
+                "YYYY-MM-DD.md). Appends with a timestamp — use whenever the user says 'note "
+                "this', 'jot down', 'remember for today', or captures a quick thought.",
+        {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+        lambda text: _note(text))
+
+    reg.register(
+        "read_journal", "Read a day's captured notes (default today). Date format YYYY-MM-DD.",
+        {"type": "object", "properties": {"date": {"type": "string", "description": "default today"}}},
+        lambda date="": _read_journal(date))
 
     reg.register(
         "fs_find", "Find files by glob pattern under a Desktop folder (e.g. '**/*.py').",
@@ -527,6 +562,54 @@ def _fs_read(path: str, max_chars: int = 8000) -> str:
     p = _allowed_path(path)
     text = p.read_text(encoding="utf-8", errors="replace")
     return text[:max_chars] + ("\n…(truncated)" if len(text) > max_chars else "")
+
+
+def _read_pdf(path: str, max_pages: int = 20, max_chars: int = 12000) -> str:
+    p = _allowed_path(path)  # same Desktop sandbox as fs_read
+    if p.suffix.lower() != ".pdf":
+        return f"error: not a PDF: {path} (use fs_read for text files)"
+    try:
+        import pdfplumber
+    except ImportError:
+        return "error: pdfplumber not installed — run: pip install pdfplumber"
+    try:
+        with pdfplumber.open(str(p)) as pdf:
+            pages = pdf.pages[:max_pages]
+            parts = [(pg.extract_text() or "") for pg in pages]
+            more = len(pdf.pages) > max_pages
+    except Exception as e:
+        return f"error: could not read PDF: {type(e).__name__}: {e}"
+    text = "\n\n".join(t for t in parts if t.strip())
+    if not text.strip():
+        return "(no extractable text — the PDF is likely scanned images, not selectable text)"
+    out = text[:max_chars]
+    if len(text) > max_chars or more:
+        out += "\n…(truncated)"
+    return out
+
+
+def _journal_path(date: str = ""):
+    from datetime import date as _date
+    day = date or _date.today().isoformat()
+    return config.WORKSPACE / "journal" / f"{day}.md", day
+
+
+def _note(text: str) -> str:
+    from datetime import datetime
+    p, day = _journal_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if not p.exists():
+        p.write_text(f"# Journal — {day}\n\n", encoding="utf-8")
+    with p.open("a", encoding="utf-8") as f:
+        f.write(f"- {datetime.now():%H:%M} — {text}\n")
+    return f"noted in journal/{day}.md"
+
+
+def _read_journal(date: str = "") -> str:
+    p, day = _journal_path(date)
+    if not p.exists():
+        return f"no journal entries for {day}"
+    return p.read_text(encoding="utf-8")
 
 
 def _fs_find(pattern: str, path: str = "") -> list[str] | str:
