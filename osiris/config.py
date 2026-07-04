@@ -55,9 +55,28 @@ DB_PATH = ROOT / "osiris.db"
 WORKSPACE = ROOT / "workspace"  # write_file/read_file sandbox
 WORKSPACE.mkdir(exist_ok=True)
 
+def _real_desktop() -> Path | None:
+    """The actual Windows Desktop — reads the same registry key Explorer
+    itself uses, so it respects OneDrive's Known Folder redirection.
+    Without this, both `~/OneDrive/Desktop` and `~/Desktop` can physically
+    exist as real folders, and a model that guesses an absolute path (despite
+    being told not to) can silently land in the wrong one — observed live:
+    a file the user asked for on "Desktop" ended up in the stale `~/Desktop`,
+    not the one Explorer/File Explorer/every shortcut actually shows them."""
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        value, _ = winreg.QueryValueEx(key, "Desktop")
+        return Path(os.path.expandvars(value))
+    except Exception:
+        return None
+
+
 # Read/list/git access is limited to these roots (fs_* and git_* tools).
 # Override: OSIRIS_ALLOWED_DIRS=C:\path\one;C:\path\two
-_default_roots = [Path.home() / "OneDrive" / "Desktop", Path.home() / "Desktop"]
+_default_roots = [_real_desktop()] if _real_desktop() else \
+    [Path.home() / "OneDrive" / "Desktop", Path.home() / "Desktop"]
 ALLOWED_DIRS = ([Path(p).resolve() for p in os.getenv("OSIRIS_ALLOWED_DIRS", "").split(";") if p.strip()]
                 or [p.resolve() for p in _default_roots if p.exists()])
 

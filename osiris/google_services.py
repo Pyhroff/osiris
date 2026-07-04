@@ -44,7 +44,17 @@ def _get_service(name: str, version: str):
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                # Refresh tokens do eventually get revoked/expire (password change,
+                # security event, 6 months idle) — on a long-running bot/daemon this
+                # would otherwise surface as a raw library exception instead of a
+                # clean next step.
+                raise RuntimeError(
+                    f"Gmail/Calendar/Drive authorization expired and couldn't refresh "
+                    f"({type(e).__name__}) — delete token.json and run `osiris` once "
+                    f"in a terminal to re-authorize.") from e
         else:
             if not CREDENTIALS_FILE.exists():
                 raise RuntimeError(
@@ -59,8 +69,39 @@ def _get_service(name: str, version: str):
     return _services[name]
 
 
+def _clean_api_error(e: Exception) -> str:
+    """googleapiclient.errors.HttpError dumps a full JSON response body into
+    str(e) — useful for debugging, unreadable as a chat reply. Pull out just
+    the human-readable reason Google actually gives."""
+    import json
+    msg = str(e)
+    try:
+        start = msg.index("{")
+        body = json.loads(msg[start:])
+        return body.get("error", {}).get("message", msg)
+    except (ValueError, KeyError):
+        return msg
+
+
+def _clean_errors(fn):
+    """Every public function below hits the Gmail/Drive/Calendar API — wrap
+    once here instead of a try/except in each, so a quota hit or a bad
+    permission surfaces as one clean sentence, not a JSON body dump."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        from googleapiclient.errors import HttpError
+        try:
+            return fn(*args, **kwargs)
+        except HttpError as e:
+            raise RuntimeError(f"Google API error: {_clean_api_error(e)}") from e
+    return wrapper
+
+
 # -- Gmail ---------------------------------------------------------------
 
+@_clean_errors
 def gmail_search(query: str, max_results: int = 5) -> list[dict]:
     svc = _get_service("gmail", "v1")
     resp = svc.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
@@ -76,6 +117,7 @@ def gmail_search(query: str, max_results: int = 5) -> list[dict]:
     return out
 
 
+@_clean_errors
 def gmail_read(message_id: str) -> str:
     svc = _get_service("gmail", "v1")
     msg = svc.users().messages().get(userId="me", id=message_id, format="full").execute()
@@ -89,6 +131,7 @@ def gmail_read(message_id: str) -> str:
     return body.strip() or msg.get("snippet", "(no readable text body)")
 
 
+@_clean_errors
 def gmail_send(to: str, subject: str, body: str) -> str:
     svc = _get_service("gmail", "v1")
     mime = MIMEText(body)
@@ -98,6 +141,7 @@ def gmail_send(to: str, subject: str, body: str) -> str:
     return f"sent (message id {sent['id']})"
 
 
+@_clean_errors
 def gmail_create_draft(to: str, subject: str, body: str) -> str:
     """Saves to the Drafts folder — nothing is sent until the user hits send."""
     svc = _get_service("gmail", "v1")
@@ -108,6 +152,7 @@ def gmail_create_draft(to: str, subject: str, body: str) -> str:
     return f"draft saved: '{subject}' -> {to} (draft id {d['id']})"
 
 
+@_clean_errors
 def gmail_reply(message_id: str, body: str) -> str:
     """Draft a reply in the same thread. Nothing sends until the user hits send."""
     svc = _get_service("gmail", "v1")
@@ -139,6 +184,7 @@ _EXPORTABLE = {  # Google-native formats need export, not download
 }
 
 
+@_clean_errors
 def drive_search(query: str, max_results: int = 10) -> list[dict]:
     svc = _get_service("drive", "v3")
     q = query.replace("'", r"\'")
@@ -151,6 +197,7 @@ def drive_search(query: str, max_results: int = 10) -> list[dict]:
             for f in resp.get("files", [])]
 
 
+@_clean_errors
 def drive_read(file_id: str, max_chars: int = 8000) -> str:
     svc = _get_service("drive", "v3")
     meta = svc.files().get(fileId=file_id, fields="name,mimeType").execute()
@@ -167,6 +214,7 @@ def drive_read(file_id: str, max_chars: int = 8000) -> str:
 
 # -- Calendar ---------------------------------------------------------------
 
+@_clean_errors
 def calendar_list_events(days_ahead: int = 7) -> list[dict]:
     svc = _get_service("calendar", "v3")
     now = datetime.now().astimezone()
@@ -180,6 +228,7 @@ def calendar_list_events(days_ahead: int = 7) -> list[dict]:
             for e in resp.get("items", [])]
 
 
+@_clean_errors
 def calendar_create_event(title: str, start_iso: str, end_iso: str, description: str = "") -> str:
     svc = _get_service("calendar", "v3")
     tz = datetime.now().astimezone().tzinfo

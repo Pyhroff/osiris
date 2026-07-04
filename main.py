@@ -1,5 +1,7 @@
 """OSIRIS — personal AI operating system. Entry point / REPL."""
+import shutil
 import sys
+import textwrap
 import time
 
 from osiris import config
@@ -19,6 +21,30 @@ BANNER = r"""
  \___/|____/___|_| \_\___|____/
  intelligence as the kernel · type /help
 """
+
+# Real ANSI escapes, not markdown — this actually renders in a terminal,
+# unlike **bold**/# headers which just show as literal punctuation. Off
+# entirely when stdout isn't a real terminal (piped/redirected output stays
+# clean, and my own testing via a pipe doesn't get escape-code noise).
+_TTY = sys.stdout.isatty()
+_DIM = "\033[90m" if _TTY else ""
+_AMBER = "\033[38;5;215m" if _TTY else ""
+_RESET = "\033[0m" if _TTY else ""
+
+
+def _wrap(text: str) -> str:
+    """Wrap to the real terminal width with a hanging indent under "- "
+    bullets, so a wrapped bullet's continuation lines align under the text
+    instead of starting back at column 0 and looking like a new item."""
+    width = max(40, min(shutil.get_terminal_size(fallback=(100, 24)).columns - 2, 100))
+    out = []
+    for para in text.split("\n"):
+        if not para.strip():
+            out.append("")
+            continue
+        hang = "  " if para.lstrip().startswith("- ") else ""
+        out.append(textwrap.fill(para, width=width, subsequent_indent=hang))
+    return "\n".join(out)
 
 HELP = """commands:
   /goals     show active goals & milestones
@@ -72,7 +98,7 @@ def main():
 
     while True:
         try:
-            line = input("you › ").strip()
+            line = input(f"{_AMBER}you › {_RESET}").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nbye.")
             break
@@ -134,7 +160,7 @@ def main():
                         try:
                             reply = agent.run(prompt, profile=profile)
                             via = getattr(llm, "active", "")
-                            print(f"\nosiris › {reply}" + (f"\n  [{via}]" if via else ""))
+                            print(f"\nosiris › {_wrap(reply)}" + (f"\n  {_DIM}[{via}]{_RESET}" if via else ""))
                         except Exception as e:
                             print(f"\n[error] {type(e).__name__}: {e}")
                         time.sleep(interval)
@@ -143,12 +169,13 @@ def main():
         else:
             profile = pick_agent(line)
             if profile.key != "personal":
-                print(f"  [→ {profile.key} agent]")
+                print(f"  {_DIM}[→ {profile.key} agent]{_RESET}")
             try:
-                echo = lambda n, a: print(f"  ⚙ {n}({', '.join(f'{k}={v!r}' for k, v in a.items())})")
+                echo = lambda n, a: print(
+                    f"  {_DIM}⚙ {n}({', '.join(f'{k}={v!r}' for k, v in a.items())}){_RESET}")
                 reply = agent.run(line, profile=profile, on_tool=echo)
                 via = getattr(llm, "active", "")
-                print(f"\nosiris › {reply}" + (f"\n  [{via}]\n" if via else "\n"))
+                print(f"\nosiris › {_wrap(reply)}" + (f"\n  {_DIM}[{via}]{_RESET}\n" if via else "\n"))
             except Exception as e:
                 print(f"\n[error] {type(e).__name__}: {e}")
                 print("  if this keeps happening, try /clear to reset the conversation\n")

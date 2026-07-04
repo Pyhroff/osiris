@@ -399,6 +399,58 @@ def test_graceful_errors_without_credentials(reg):
         "gmail_reply", {"message_id": "abc", "body": "hi"})
 
 
+def test_clean_api_error_extracts_google_message():
+    from osiris.google_services import _clean_api_error
+    fake = Exception('<HttpError 403 when requesting ...>: {"error": '
+                     '{"code": 403, "message": "Insufficient Permission"}}')
+    assert _clean_api_error(fake) == "Insufficient Permission"
+    unparseable = Exception("some other exception with no JSON body at all")
+    assert _clean_api_error(unparseable) == str(unparseable)
+
+
+def test_clean_errors_decorator_wraps_http_error_cleanly():
+    from googleapiclient.errors import HttpError
+    from osiris.google_services import _clean_errors
+    import httplib2
+
+    @_clean_errors
+    def boom():
+        resp = httplib2.Response({"status": "429"})
+        raise HttpError(resp, b'{"error": {"message": "Quota exceeded"}}')
+
+    try:
+        boom()
+        assert False, "should have raised"
+    except RuntimeError as e:
+        assert "Quota exceeded" in str(e)
+
+
+def test_token_refresh_failure_gives_actionable_message(reg, monkeypatch, tmp_path):
+    from osiris import google_services as g
+    token_file = tmp_path / "token.json"
+    token_file.write_text('{"token": "x"}', encoding="utf-8")
+    monkeypatch.setattr(g, "TOKEN_FILE", token_file)
+    monkeypatch.setattr(g, "CREDENTIALS_FILE", tmp_path / "credentials.json")
+    g._services.clear()
+
+    class DeadCreds:
+        valid = False
+        expired = True
+        refresh_token = "r"
+        def refresh(self, request):
+            raise Exception("invalid_grant")
+
+    monkeypatch.setattr(
+        "google.oauth2.credentials.Credentials.from_authorized_user_file",
+        lambda *a, **k: DeadCreds())
+
+    try:
+        g._get_service("gmail", "v1")
+        assert False, "should have raised"
+    except RuntimeError as e:
+        assert "delete token.json" in str(e) and "re-authorize" in str(e)
+
+
 @pytest.mark.skipif(subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
                     reason="git not installed")
 def test_git_tools_on_real_repo(reg, tmp_path):
