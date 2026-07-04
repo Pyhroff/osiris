@@ -144,7 +144,7 @@ Each agent is a **persona + a restricted tool subset + routing keywords**. Small
 | **email** | "email", "mail", "inbox", "unread", "draft", "cold email", "outreach", "application" | gmail_search/read/send/create_draft/reply, **web_search**, **track_application/list_applications/update_application_status**, schedule_task | Never sends without your explicit confirmation; always prefers drafts. Cold outreach is always one *personalized* draft per company, never a templated blast — see §14. |
 | **learning** | "learn", "study", "goal", "roadmap", "milestone" | create_plan, list_goals, complete_milestone, schedule_task, list_tasks, complete_task | Long-horizon goal planning with due-dated milestones. |
 | **research** | "research", "investigate", "summarize", "drive", "docs", "search the web", "look up" | write_file/read_file/list_files, drive_search/read, fs_*, **web_search**, **read_pdf**, **analyze_image**, **index_folder**/**search_docs**, **write_pdf** | Synthesizes findings from the live web + Drive + local indexed docs + memory into workspace notes, or a generated PDF. |
-| **personal** | fallback (no keyword match) | **all 57 tools** | The expensive path — use it for genuinely mixed-domain asks, not routine ones. |
+| **personal** | fallback (no keyword match) | **all 58 tools** | The expensive path — use it for genuinely mixed-domain asks, not routine ones. |
 
 Routing is pure keyword weighting in [agents.py](osiris/agents.py) — `pick_agent()` sums
 `hits × keyword_weight` per profile, ties broken by `priority`. No ML classifier, so it costs
@@ -152,7 +152,11 @@ nothing and never fails.
 
 ---
 
-## 5. Tool reference (57 tools)
+## 5. Tool reference (58 tools)
+
+Full git/GitHub concepts (branching, merge strategies, PRs, issues, visibility) plus an exact
+tool-by-tool reference live in **GITHUB_PLAYBOOK.md** — read that instead of this section for
+anything git-related.
 
 **Memory** — `remember`, `recall`, `list_memories`, `forget`, `current_datetime`
 **Journal** — `note` (quick-capture a timestamped line into workspace/journal/YYYY-MM-DD.md), `read_journal`
@@ -161,7 +165,7 @@ nothing and never fails.
 **Workspace (sandboxed to `./workspace`)** — `write_file`, `read_file`, `list_files`
 **Desktop filesystem (sandboxed to `ALLOWED_DIRS`)** — `fs_list`, `fs_read`, `fs_find`, `fs_write`, `fs_edit`, `read_pdf` (extract text from a PDF — resumes, JDs, papers; needs `pdfplumber`, scanned/image PDFs won't extract)
 **Project scaffolding** — `scaffold_project` (writes an entire project tree in one call)
-**Local git** — `git_list_repos`, `git_init`, `git_status`, `git_diff`, `git_log`, `git_commit`, `git_push`, `git_sync_check`
+**Local git** — `git_list_repos`, `git_init`, `git_checkout`, `git_status`, `git_diff`, `git_log`, `git_commit`, `git_push`, `git_sync_check`
 **GitHub** — `github_create_repo`, `github_create_pr`, `github_list_repos`, `github_list_issues`, `github_create_issue`
 **Recon (authorized targets only)** — `run_recon` (nmap/whois/dig/nslookup/ping/curl)
 **Project ops** — `run_project_command` (pytest/npm-test/npm-build/npm-lint/ruff/mypy, one repo at a time), `cve_lookup` (live NVD database, no key needed)
@@ -385,7 +389,7 @@ OSIRIS/                    the app itself
                             memory.py, planner.py, reflection.py, config.py,
                             google_services.py, providers/
   workspace/                write_file/read_file sandbox + briefings/
-  tests/                    67 offline pytest tests
+  tests/                    69 offline pytest tests
   osiris.db                 SQLite: memories, goals, tasks, routines
   .env                      your keys — OSIRIS never writes to this file
   credentials.json /
@@ -467,6 +471,11 @@ restart. Changes to `.env` require a restart to take effect (no hot reload).
   live with Gemini on casual/typo'd requests — "chec my mails" silently returned nothing twice
   in a row before a clearer phrasing worked), the agent now nudges and retries within the same
   turn instead of surrendering with a dead-end "(no response)".
+- **Context-overflow clarity**: a large `scaffold_project` payload (a whole project's files in
+  one tool call) can exceed a smaller free-tier model's context window. That failure now gets
+  named plainly ("too large for that model's context window") instead of generic exception
+  noise — this is almost certainly what "memory is reached, cannot proceed" actually was. The
+  chain still fails over to a bigger-context provider automatically either way.
 - **Confirm-before-act**: enforced by persona instructions the LLM is told to follow, not by
   a hard code gate (except `run_recon`'s target/flag checks, which are hard-gated). A
   misbehaving model *could* skip the confirmation step — watch for that, especially on weaker
