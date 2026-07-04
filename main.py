@@ -121,8 +121,8 @@ def main():
             print(f"memories stored: {memory.db.execute('SELECT COUNT(*) FROM memories').fetchone()[0]}")
             print(f"active goals: {len(memory.list_goals())}")
             print(f"pending tasks: {len(memory.list_tasks())}")
-        elif line.startswith("/loop "):
-            rest = line[len("/loop "):].split(" ", 1)
+        elif line == "/loop" or line.startswith("/loop "):
+            rest = line[len("/loop"):].strip().split(" ", 1)
             if len(rest) < 2 or not rest[0].isdigit():
                 print("usage: /loop <seconds> <prompt>")
             else:
