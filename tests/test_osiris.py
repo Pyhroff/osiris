@@ -143,7 +143,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 57
+    assert len(specs) == 58
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -260,6 +260,28 @@ def test_git_init_creates_new_repo(reg, tmp_path):
     assert ".env" in (tmp_path / "fresh" / ".gitignore").read_text()
     assert "already a git repository" in reg.execute("git_init", {"path": str(tmp_path / "fresh")})
     assert "outside allowed" in reg.execute("git_init", {"path": str(tmp_path.parent / "evil")})
+
+
+@pytest.mark.skipif(subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
+                    reason="git not installed")
+def test_git_checkout_creates_and_switches_branch(reg, tmp_path):
+    repo = tmp_path / "branchrepo"
+    reg.execute("git_init", {"path": str(repo)})
+    (repo / "f.txt").write_text("v1", encoding="utf-8")
+    reg.execute("git_commit", {"repo": str(repo), "message": "init"})
+
+    out = reg.execute("git_checkout", {"repo": str(repo), "branch": "feature-x"})
+    assert "error" not in out.lower()
+    current = subprocess.run(["git", "-C", str(repo), "branch", "--show-current"],
+                             capture_output=True, text=True).stdout.strip()
+    assert current == "feature-x"
+
+    # switching to an existing branch (create=False) rather than making a new one
+    out2 = reg.execute("git_checkout", {"repo": str(repo), "branch": "main", "create": False})
+    assert "error" not in out2.lower()
+    current2 = subprocess.run(["git", "-C", str(repo), "branch", "--show-current"],
+                              capture_output=True, text=True).stdout.strip()
+    assert current2 == "main"
 
 
 def test_scaffold_project_writes_whole_tree(reg, tmp_path):
@@ -498,6 +520,17 @@ def test_router_cooldown_skips_failed_provider():
     assert dead.calls == 1
     r.chat([{"role": "user", "content": "b"}])  # dead is cooling down -> not retried
     assert dead.calls == 1
+
+
+def test_context_overflow_gets_a_named_reason_not_generic_noise():
+    from osiris.router import _reason
+    # A big scaffold_project payload exceeding a smaller model's context window
+    # used to surface as generic exception noise a user paraphrased as
+    # "memory is reached, cannot proceed" — this names the real cause instead.
+    e = Exception("Error code: 400 - This model's maximum context length is 8192 tokens")
+    assert "too large for that model's context window" in _reason(e)
+    e2 = Exception("400 input is too long for requested model")
+    assert "too large for that model's context window" in _reason(e2)
 
 
 def test_router_all_dead_and_empty(monkeypatch):

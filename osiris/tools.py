@@ -304,6 +304,18 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         lambda path: _git_init(path))
 
     reg.register(
+        "git_checkout",
+        "Switch a local repo to a branch, creating it first if it doesn't exist (default). "
+        "A github_create_pr only makes sense from a feature branch, not the base branch "
+        "itself — use this to create one before committing, if the user wants a PR rather "
+        "than a direct commit to main.",
+        {"type": "object",
+         "properties": {"repo": {"type": "string"}, "branch": {"type": "string"},
+                        "create": {"type": "boolean", "description": "default true"}},
+         "required": ["repo", "branch"]},
+        lambda repo, branch, create=True: _git_checkout(repo, branch, create))
+
+    reg.register(
         "git_status", "Show git status of a local repository folder.",
         {"type": "object", "properties": {"repo": {"type": "string", "description": "repo folder, e.g. 'PromptStrike'"}},
          "required": ["repo"]},
@@ -947,6 +959,12 @@ def _git_init(path: str) -> str:
     if not gi.exists():
         gi.write_text(_DEFAULT_GITIGNORE, encoding="utf-8")
     return (r.stdout + r.stderr).strip() or f"initialized empty repo at {p}"
+
+
+def _git_checkout(repo: str, branch: str, create: bool = True) -> str:
+    if create:
+        return _git(repo, "checkout", "-b", branch)
+    return _git(repo, "checkout", branch)
 
 
 def _gh_list_repos() -> list[dict]:

@@ -44,7 +44,7 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "5) Ask if the user wants it on GitHub; only then github_create_repo. "
         "Default location for new projects: the 'OSIRIS FILES' folder.",
         _MEMORY + ["scaffold_project", "fs_list", "fs_read", "fs_write", "fs_edit",
-                   "git_init", "git_status", "git_commit", "git_push",
+                   "git_init", "git_checkout", "git_status", "git_commit", "git_push",
                    "github_create_repo", "github_create_pr", "run_project_command"],
         ["build me", "build a", "create a project", "new project", "scaffold",
          "architecture", "design a", "make me a", "full project", "high end"],
@@ -65,11 +65,14 @@ PROFILES: dict[str, AgentProfile] = {p.key: p for p in [
         "npm-lint, ruff, mypy) — confirm with the user first, it executes real code. If the "
         "repo has a test suite and you just changed logic (not just docs/config), verify with "
         "run_project_command before calling the change done — don't just trust your own edit. "
+        "For a pull request: git_checkout a new branch FIRST, then commit on it, then "
+        "github_create_pr — a PR from the base branch to itself has no commits to show and "
+        "will fail. Only commit straight to main if the user didn't ask for a PR. "
         "Before fs_write/fs_edit, show the user the exact change and get their OK. Before "
         "git_commit, show status and proposed message; before git_push, get explicit confirmation.",
         _MEMORY + ["github_list_issues", "github_create_issue", "github_list_repos",
                    "github_create_repo", "github_create_pr", "scaffold_project",
-                   "git_status", "git_diff", "git_log", "git_commit", "git_push",
+                   "git_status", "git_diff", "git_log", "git_commit", "git_push", "git_checkout",
                    "git_sync_check", "git_list_repos", "git_init", "run_project_command",
                    "fs_list", "fs_read", "fs_find", "fs_write", "fs_edit",
                    "write_file", "read_file", "list_files",

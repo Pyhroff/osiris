@@ -22,11 +22,25 @@ def _is_ratelimit(e: Exception) -> bool:
     return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "rate limit" in msg.lower()
 
 
+def _is_context_overflow(e: Exception) -> bool:
+    msg = str(e).lower()
+    return any(s in msg for s in ("context length", "context_length", "maximum context",
+                                  "too many tokens", "token limit", "input is too long"))
+
+
 def _reason(e: Exception) -> str:
     """One short human phrase instead of a wall of API JSON."""
     msg = str(e)
     if _is_ratelimit(e):
         return "rate/quota limit hit"
+    if _is_context_overflow(e):
+        # A big scaffold_project payload (a whole project's file contents in
+        # one tool call) can exceed a smaller free-tier model's context window.
+        # Without this, the raw exception looked like generic noise that got
+        # paraphrased as "memory is reached, cannot proceed" — this names the
+        # actual cause so the fix (ask for a smaller project, or let it retry
+        # on a bigger-context provider) is obvious instead of a guess.
+        return "this request is too large for that model's context window — the chain will try a bigger one"
     if "timed out" in msg.lower() or "timeout" in msg.lower():
         return "timed out"
     if "401" in msg or "403" in msg or "API key" in msg:
