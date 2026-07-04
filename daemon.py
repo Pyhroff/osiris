@@ -93,6 +93,32 @@ def run_routine(routine: dict, memory: Memory):
     print(f"[{datetime.now():%H:%M}] routine '{routine['name']}' done -> {out.name}")
 
 
+def poll_once(memory: Memory, routines: list[dict]) -> list[str]:
+    """One reminder+routine poll cycle. Returns a human-readable line per thing
+    that fired, so a caller (the standalone daemon, or the Discord bot running
+    this same cycle internally) can react beyond the toast/webhook notify()
+    already does — e.g. DM you directly instead of only mirroring to a webhook."""
+    fired = []
+    for task in memory.due_unnotified():
+        notify("OSIRIS reminder", task["description"])
+        memory.mark_notified(task["id"])
+        print(f"[{datetime.now():%H:%M}] notified: #{task['id']} {task['description']}")
+        fired.append(f"reminder: {task['description']}")
+
+    now = datetime.now()
+    for routine in routines:
+        if routine_due(routine, memory.routine_last_run(routine["name"]), now):
+            memory.mark_routine_run(routine["name"])  # mark first: a crash must not retry-spam quota
+            try:
+                run_routine(routine, memory)
+                fired.append(f"routine '{routine['name']}' completed — see workspace/briefings/")
+            except Exception as e:
+                print(f"[routine '{routine['name']}' failed: {e}]")
+                notify(f"OSIRIS · {routine['name']} failed", str(e)[:200])
+                fired.append(f"routine '{routine['name']}' failed: {e}")
+    return fired
+
+
 def main():
     memory = Memory(_NoLLM(), db_path=config.DB_PATH)
     routines = load_routines()
@@ -102,21 +128,7 @@ def main():
         print(f"  · {r['name']} at {r['time']} {cadence}")
 
     while True:
-        for task in memory.due_unnotified():
-            notify("OSIRIS reminder", task["description"])
-            memory.mark_notified(task["id"])
-            print(f"[{datetime.now():%H:%M}] notified: #{task['id']} {task['description']}")
-
-        now = datetime.now()
-        for routine in routines:
-            if routine_due(routine, memory.routine_last_run(routine["name"]), now):
-                memory.mark_routine_run(routine["name"])  # mark first: a crash must not retry-spam quota
-                try:
-                    run_routine(routine, memory)
-                except Exception as e:
-                    print(f"[routine '{routine['name']}' failed: {e}]")
-                    notify(f"OSIRIS · {routine['name']} failed", str(e)[:200])
-
+        poll_once(memory, routines)
         time.sleep(POLL_SECONDS)
 
 

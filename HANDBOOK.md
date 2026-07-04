@@ -273,6 +273,11 @@ SQLite at `osiris.db`, six tables: `memories`, `goals`/`milestones`, `tasks`, `r
 
 ## 8. Proactive daemon
 
+If you're running `osiris bot` (§9b), you don't need this running separately — the bot polls
+the same cycle internally (`daemon.poll_once`, shared code, not a reimplementation) and DMs you
+directly. Run `osiris daemon` standalone only if you want toast/webhook notifications without
+the Discord bot's chat surface.
+
 `osiris daemon` polls every 60s for two things:
 
 1. **Scheduled task reminders** — Windows toast (`plyer`) + Discord webhook mirror if configured.
@@ -352,6 +357,12 @@ new *permissions* — every tool's own guardrails (`run_recon`'s authorization g
 3. OAuth2 → URL Generator → scope `bot`, permissions Send Messages + Read Message History (no
    admin) → invite it to a small private server with just you, then DM it directly
 4. `osiris bot` (needs `discord.py` — already in `requirements.txt`)
+
+**One process, not two**: `osiris bot` also runs the daemon's reminder/routine poll cycle
+internally (`daemon.poll_once` — shared code, not duplicated) and DMs you directly when
+something fires, on top of whatever toast/webhook `notify()` already does. You no longer need
+`osiris daemon` running separately just to get proactive behavior — verified live: a due
+reminder correctly fires exactly once and doesn't double-notify on the next poll.
 
 **The honest limit, unavoidable**: your PC has to actually be on and this process running.
 OSIRIS is a program on your machine, not a hosted cloud service — if the PC's off or asleep,

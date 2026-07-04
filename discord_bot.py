@@ -10,6 +10,11 @@ permissions: every tool's own guardrails (run_recon's authorization gate,
 run_project_command's allowlist, confirm-before-act persona rules) apply
 identically here, same as the REPL/web UI.
 
+This process ALSO polls tasks/routines internally (same cycle as daemon.py) —
+one process now covers both the chat surface and the proactive side, instead
+of needing `osiris daemon` running in a second terminal too. Due
+reminders/routines get DMed to you directly, on top of the usual toast/webhook.
+
 Your PC must be on and this process running for the bot to respond — it's a
 personal assistant on your machine, not a hosted cloud service.
 """
@@ -19,9 +24,11 @@ from osiris import config
 
 try:
     import discord
+    from discord.ext import tasks
 except ImportError:
     sys.exit("discord.py not installed — run: pip install -r requirements.txt")
 
+import daemon
 from osiris.agent import Agent
 from osiris.agents import pick_agent
 from osiris.memory import Memory
@@ -55,13 +62,33 @@ def main():
     memory = Memory(llm)
     agent = Agent(llm, memory, build_registry(memory, Planner(llm, memory)))
 
+    # Reminder/routine poller — separate from the chat agent's memory, same
+    # split daemon.py uses (reminders never need an LLM, so this stays free).
+    poll_memory = Memory(daemon._NoLLM(), db_path=config.DB_PATH)
+    routines = daemon.load_routines()
+
     intents = discord.Intents.default()
     intents.message_content = True
     client = discord.Client(intents=intents)
 
+    @tasks.loop(seconds=daemon.POLL_SECONDS)
+    async def poll_loop():
+        fired = daemon.poll_once(poll_memory, routines)
+        if not fired:
+            return
+        for uid in allowed:
+            try:
+                user = await client.fetch_user(uid)
+                for line in fired:
+                    await user.send(line[:DISCORD_MSG_LIMIT])
+            except Exception as e:
+                print(f"[discord bot] couldn't DM {uid}: {e}")
+
     @client.event
     async def on_ready():
         print(f"[discord bot] online as {client.user} — DMs from {sorted(allowed)} will be answered")
+        if not poll_loop.is_running():
+            poll_loop.start()
 
     @client.event
     async def on_message(message: discord.Message):
