@@ -42,6 +42,13 @@ morning, unattended."
 Anything else is sent straight to the agent. Web UI has the same reset as a **CLEAR** button
 in the header (`POST /api/clear`).
 
+**Readability**: replies wrap to your actual terminal width with a hanging indent under "- "
+bullets, so a wrapped line's continuation aligns under the text instead of restarting at
+column 0 and looking like a new item. The "you ›" prompt, tool-call echoes, agent-routing tag,
+and provider tag use real ANSI color (dim gray for metadata, amber for your input) — actual
+terminal formatting, not markdown syntax, and automatically off if stdout isn't a real
+terminal (piped/redirected output stays clean).
+
 ## 2b. If something breaks — the playbook
 
 Realistic expectation: nothing running on free-tier models across a fully autonomous tool
@@ -378,7 +385,7 @@ OSIRIS/                    the app itself
                             memory.py, planner.py, reflection.py, config.py,
                             google_services.py, providers/
   workspace/                write_file/read_file sandbox + briefings/
-  tests/                    56 offline pytest tests
+  tests/                    67 offline pytest tests
   osiris.db                 SQLite: memories, goals, tasks, routines
   .env                      your keys — OSIRIS never writes to this file
   credentials.json /
@@ -446,7 +453,20 @@ restart. Changes to `.env` require a restart to take effect (no hot reload).
 ## 12. Security model, honestly
 
 - **Filesystem**: hard-sandboxed to `ALLOWED_DIRS` (Desktop by default) for read/write/git/recon.
-  Cannot touch anything outside it, `~` expansion included.
+  Cannot touch anything outside it, `~` expansion included. The Desktop root is resolved via
+  the actual Windows registry Known Folder value (same thing Explorer reads), not a hardcoded
+  guess — matters if OneDrive redirects your Desktop, since `~/Desktop` and `~/OneDrive/Desktop`
+  can both physically exist and a model that ignores "never guess this path" can silently land
+  a file in the wrong (stale) one. Observed live, now fixed at the config level, not just prompted.
+- **Google API errors**: Gmail/Calendar/Drive failures (expired token, quota, bad permission)
+  surface as one clean sentence, not a raw JSON body dump — including an actionable message
+  when a refresh token is revoked/expired ("delete token.json and run `osiris` once to
+  re-authorize"), which matters on a long-running bot/daemon process more than a REPL you
+  restart daily.
+- **Empty-response recovery**: if a provider returns neither text nor a tool call (observed
+  live with Gemini on casual/typo'd requests — "chec my mails" silently returned nothing twice
+  in a row before a clearer phrasing worked), the agent now nudges and retries within the same
+  turn instead of surrendering with a dead-end "(no response)".
 - **Confirm-before-act**: enforced by persona instructions the LLM is told to follow, not by
   a hard code gate (except `run_recon`'s target/flag checks, which are hard-gated). A
   misbehaving model *could* skip the confirmation step — watch for that, especially on weaker
