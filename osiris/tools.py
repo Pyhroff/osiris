@@ -985,8 +985,17 @@ def _git_init(path: str) -> str:
 
 
 def _git_checkout(repo: str, branch: str, create: bool = True) -> str:
+    """create=True is meant to create the branch "if it doesn't exist" (per
+    this tool's own description) — but `git checkout -b` on a branch that
+    already exists just errors ("fatal: a branch named 'x' already exists")
+    instead of switching to it. Verified live: calling this a second time on
+    the same feature branch (e.g. to add another commit before a PR) failed
+    outright. Fall back to a plain checkout when that's the actual reason."""
     if create:
-        return _git(repo, "checkout", "-b", branch)
+        out = _git(repo, "checkout", "-b", branch)
+        if "already exists" in out.lower():
+            return _git(repo, "checkout", branch)
+        return out
     return _git(repo, "checkout", branch)
 
 

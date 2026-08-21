@@ -284,6 +284,27 @@ def test_git_checkout_creates_and_switches_branch(reg, tmp_path):
     assert current2 == "main"
 
 
+@pytest.mark.skipif(subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
+                    reason="git not installed")
+def test_git_checkout_create_true_switches_to_already_existing_branch(reg, tmp_path):
+    """create=True (the default) is documented as 'creating it first if it
+    doesn't exist' — calling it a second time on the same branch (e.g. to add
+    another commit before a PR) must switch, not error with 'already exists'."""
+    repo = tmp_path / "branchrepo2"
+    reg.execute("git_init", {"path": str(repo)})
+    (repo / "f.txt").write_text("v1", encoding="utf-8")
+    reg.execute("git_commit", {"repo": str(repo), "message": "init"})
+
+    reg.execute("git_checkout", {"repo": str(repo), "branch": "feature-x"})
+    reg.execute("git_checkout", {"repo": str(repo), "branch": "main", "create": False})
+
+    out = reg.execute("git_checkout", {"repo": str(repo), "branch": "feature-x"})  # create=True default
+    assert "error" not in out.lower() and "already exists" not in out.lower()
+    current = subprocess.run(["git", "-C", str(repo), "branch", "--show-current"],
+                             capture_output=True, text=True).stdout.strip()
+    assert current == "feature-x"
+
+
 def test_scaffold_project_writes_whole_tree(reg, tmp_path):
     files = [{"path": "ARCHITECTURE.md", "content": "# design"},
              {"path": "src/app.py", "content": "print('hi')"},

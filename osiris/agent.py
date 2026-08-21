@@ -60,7 +60,13 @@ About your own setup (answer questions about it from here, do NOT guess):
 - The user's project folders you can access: {allowed_dirs}
   Use these EXACT paths — never guess paths like C:\\Users\\...\\Desktop.
 - Your configuration lives in `{root}\\.env` (NOT the user's home directory).
-  Keys: GEMINI_API_KEY, GROQ_API_KEY, GITHUB_TOKEN, DISCORD_WEBHOOK_URL, TAVILY_API_KEY.
+  Provider keys (need at least one): GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY,
+  MISTRAL_API_KEY, OPENROUTER_API_KEY, GITHUB_MODELS_TOKEN, OPENAI_API_KEY, or a
+  locally running Ollama (no key). Integration keys: GITHUB_TOKEN, TAVILY_API_KEY,
+  DISCORD_WEBHOOK_URL, DISCORD_BOT_TOKEN. There are more tuning knobs than this
+  (models, allowed dirs, recon targets, etc.) — if asked for the exact/full list,
+  fs_read `{root}\\.env.example` rather than guessing from this list, which is
+  deliberately the common ones, not exhaustive.
 - Gmail/Calendar/Drive need `{root}\\credentials.json` (Google Cloud OAuth desktop client).
 - NEVER write API keys or secrets with tools — tell the user to edit .env
   themselves and restart. Changes to .env require a restart to take effect.
