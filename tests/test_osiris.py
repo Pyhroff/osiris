@@ -912,3 +912,67 @@ def test_gemini_skips_empty_assistant_turn():
         {"role": "user", "content": "again"},
     ])
     assert len(contents) == 2 and all(c.parts for c in contents)
+
+
+# -- discord bot: image attachments ------------------------------------------
+
+def test_save_image_attachment_writes_file_with_safe_generated_name(tmp_path, monkeypatch):
+    import discord_bot
+    monkeypatch.setattr(discord_bot, "_IMAGE_INBOX", tmp_path / "inbox")
+    saved = discord_bot._save_image_attachment(b"fake-png-bytes", "image/png", 0)
+    assert saved is not None and saved.exists()
+    assert saved.read_bytes() == b"fake-png-bytes"
+    assert saved.suffix == ".png"
+    assert saved.parent == tmp_path / "inbox"
+
+
+def test_save_image_attachment_ignores_content_type_params(tmp_path, monkeypatch):
+    import discord_bot
+    monkeypatch.setattr(discord_bot, "_IMAGE_INBOX", tmp_path / "inbox")
+    # discord.py sometimes reports content_type as "image/jpeg; charset=..."
+    saved = discord_bot._save_image_attachment(b"x", "image/jpeg; charset=utf-8", 1)
+    assert saved is not None and saved.suffix == ".jpg"
+
+
+def test_save_image_attachment_rejects_unsupported_type(tmp_path, monkeypatch):
+    import discord_bot
+    monkeypatch.setattr(discord_bot, "_IMAGE_INBOX", tmp_path / "inbox")
+    assert discord_bot._save_image_attachment(b"data", "application/pdf", 0) is None
+    assert not (tmp_path / "inbox").exists()  # nothing written for a rejected type
+
+
+def test_save_image_attachment_never_uses_caller_supplied_filename(tmp_path, monkeypatch):
+    """The function signature has no filename parameter at all — verifies a
+    crafted Discord filename (e.g. '../../evil.png') has no path to reach the
+    save location, since it's never consulted in the first place."""
+    import inspect
+    import discord_bot
+    assert "filename" not in inspect.signature(discord_bot._save_image_attachment).parameters
+
+
+def test_build_content_with_images_appends_note_to_existing_text():
+    import discord_bot
+    from pathlib import Path
+    out = discord_bot._build_content_with_images("what's this bug", [Path("/inbox/a.png")])
+    assert out.startswith("what's this bug")
+    assert "analyze_image" in out and "a.png" in out
+
+
+def test_build_content_with_images_no_images_is_passthrough():
+    import discord_bot
+    assert discord_bot._build_content_with_images("hello", []) == "hello"
+
+
+def test_build_content_with_images_empty_text_with_image_still_actionable():
+    import discord_bot
+    from pathlib import Path
+    out = discord_bot._build_content_with_images("", [Path("/inbox/a.png")])
+    assert out.strip()  # a bare photo with no caption must still produce non-empty content
+    assert "analyze_image" in out
+
+
+def test_build_content_with_images_multiple_images_all_referenced():
+    import discord_bot
+    from pathlib import Path
+    out = discord_bot._build_content_with_images("compare these", [Path("/inbox/a.png"), Path("/inbox/b.png")])
+    assert "a.png" in out and "b.png" in out

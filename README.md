@@ -75,7 +75,9 @@ Then from anywhere: `osiris` (REPL) · `osiris serve` (web UI) ·
 You need **at least one** provider (all free options):
 - Gemini: https://aistudio.google.com/apikey (recommended — also powers memory embeddings and vision)
 - Groq: https://console.groq.com/keys
-- Cerebras: https://cloud.cerebras.ai (fastest 70B inference anywhere)
+- Cerebras: https://cloud.cerebras.ai (fastest 70B inference anywhere — note: as of
+  2026 this is expiring promotional credits, not a permanent standing free tier
+  like Gemini/Groq, so it can eventually need a top-up)
 - Mistral: https://console.mistral.ai (La Plateforme → API keys, free tier)
 - OpenRouter: https://openrouter.ai/keys (`:free` model pool)
 - GitHub Models: a GitHub PAT with `Models: read` → free gpt-4o-mini
@@ -111,6 +113,11 @@ discord_bot.py` (or `osiris bot`). Only DMs from allowlisted user ids get a
 response — everyone else is silently ignored, no hint the bot exists. This
 process also polls tasks/routines internally, so it replaces `daemon.py`
 when running (one process covers chat + proactive reminders).
+
+Send a photo/screenshot in the DM (with or without a caption) and it's saved to
+`workspace/inbox/` and handed straight to `analyze_image` — "what's this error"
++ a screenshot from your phone works, not just text. Non-image attachments
+aren't handled yet.
 
 ### Background daemon (optional, if not running the Discord bot)
 
@@ -224,5 +231,6 @@ without credentials.
 - [x] Memory backup/export (`export_memory` tool, `/backup`) — `osiris.db` has no other copy
 - [x] `/status` does live validity checks (refresh/ping), not just "is a key present"
 - [x] OneDrive/cloud-sync detection — one-time startup note if the project folder itself syncs
+- [x] Discord bot handles image attachments — a phone photo now reaches `analyze_image`, not just text
 - [ ] Knowledge graph over memories (entities + relations, not just embeddings)
 - [ ] Notion integration
