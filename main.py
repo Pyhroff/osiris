@@ -4,6 +4,8 @@ import sys
 import textwrap
 import time
 
+import requests
+
 from osiris import config
 from osiris.agent import Agent
 from osiris.agents import pick_agent
@@ -11,7 +13,7 @@ from osiris.memory import Memory
 from osiris.planner import Planner
 from osiris.reflection import reflect
 from osiris.router import ModelRouter
-from osiris.tools import build_registry
+from osiris.tools import build_registry, _export_backup
 
 BANNER = r"""
   ___  ____ ___ ____  ___ ____
@@ -49,7 +51,8 @@ def _wrap(text: str) -> str:
 HELP = """commands:
   /goals     show active goals & milestones
   /tasks     show pending scheduled tasks
-  /status    health check — providers, integrations configured, memory/goal/task counts
+  /status    health check — providers, integrations LIVE-VERIFIED (not just present), memory/goal/task counts
+  /backup    export memories/goals/tasks/applications to workspace/backups/ now
   /model     which provider answered last + who's cooling down right now
   /loop <seconds> <prompt>   repeat a prompt on an interval until Ctrl+C
   /reflect   distill this session into long-term memories now
@@ -77,6 +80,68 @@ def _run_reflection(llm, memory, agent):
         print("reflected — nothing new worth keeping.")
 
 
+def _check_gmail() -> str:
+    """Validity check, not just presence — refreshes the cached token against
+    Google's servers if it's expired but has a refresh token. Never falls
+    through to the interactive browser flow (that only happens on a real
+    Gmail/Calendar/Drive tool call), so /status can never pop a browser."""
+    cred_file = config.ROOT / "credentials.json"
+    token_file = config.ROOT / "token.json"
+    if not cred_file.exists():
+        return "gmail/calendar/drive: not set up — credentials.json missing"
+    if not token_file.exists():
+        return ("gmail/calendar/drive: credentials.json present, not yet authorized — "
+                "ask anything Gmail/Calendar/Drive-related to sign in")
+    try:
+        from google.auth.transport.requests import Request
+        from google.oauth2.credentials import Credentials
+        from osiris.google_services import SCOPES
+        creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
+        if creds.valid:
+            return "gmail/calendar/drive: authorized and working"
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            return "gmail/calendar/drive: token refreshed and working"
+        return "gmail/calendar/drive: token invalid, no refresh token — delete token.json and re-authorize"
+    except Exception as e:
+        return (f"gmail/calendar/drive: token expired/invalid ({type(e).__name__}) — "
+               f"delete token.json and run any mail/calendar command to re-authorize")
+
+
+def _check_github() -> str:
+    if not config.GITHUB_TOKEN:
+        return "github: not set — GITHUB_TOKEN empty"
+    try:
+        r = requests.get("https://api.github.com/user",
+                         headers={"Authorization": f"Bearer {config.GITHUB_TOKEN}"}, timeout=5)
+        if r.status_code == 200:
+            return f"github: authorized as {r.json().get('login', '?')}"
+        return f"github: token set but not working (HTTP {r.status_code}) — regenerate at github.com/settings/tokens"
+    except requests.RequestException as e:
+        return f"github: couldn't verify ({type(e).__name__})"
+
+
+def _check_discord() -> str:
+    if not config.DISCORD_WEBHOOK_URL:
+        return "discord: not set"
+    try:
+        # GET on a webhook URL reads its info — doesn't post a message.
+        r = requests.get(config.DISCORD_WEBHOOK_URL, timeout=5)
+        return "discord: webhook valid" if r.status_code == 200 else \
+            f"discord: webhook not working (HTTP {r.status_code})"
+    except requests.RequestException as e:
+        return f"discord: couldn't verify ({type(e).__name__})"
+
+
+def _check_ollama() -> str:
+    try:
+        r = requests.get(f"{config.OLLAMA_HOST}/api/tags", timeout=1)
+        n = len(r.json().get("models", []))
+        return f"ollama: reachable ({n} model{'s' if n != 1 else ''} pulled)"
+    except requests.RequestException:
+        return "ollama: not running (fine if it's not in your provider chain)"
+
+
 def main():
     try:
         llm = ModelRouter(verbose=config.DEBUG)
@@ -89,6 +154,10 @@ def main():
 
     print(BANNER)
     print(f" providers: {llm.describe()}\n")
+    if config.ON_ONEDRIVE and not config.ACK_ONEDRIVE:
+        print(f"{_DIM} note: this folder syncs via OneDrive — osiris.db/credentials.json/token.json/"
+             f"workspace/ (all git-ignored, so they never reach GitHub) still sync to Microsoft's "
+             f"cloud like everything else here. Set OSIRIS_ACK_ONEDRIVE=1 in .env to silence this.{_RESET}\n")
     due = memory.due_tasks()
     if due:
         print("⏰ due now:")
@@ -140,13 +209,16 @@ def main():
             print(f"last answered by: {via or '(nothing sent yet this session)'}")
         elif line == "/status":
             print(f"providers: {llm.describe()}")
-            print(f"gmail/calendar/drive: {'configured' if (config.ROOT / 'credentials.json').exists() else 'not set up — credentials.json missing'}")
-            print(f"github: {'configured' if config.GITHUB_TOKEN else 'not set — GITHUB_TOKEN empty'}")
+            print(_check_gmail())
+            print(_check_github())
             print(f"web search: {'configured' if config.TAVILY_API_KEY else 'not set — TAVILY_API_KEY empty'}")
-            print(f"discord: {'configured' if config.DISCORD_WEBHOOK_URL else 'not set'}")
+            print(_check_discord())
+            print(_check_ollama())
             print(f"memories stored: {memory.db.execute('SELECT COUNT(*) FROM memories').fetchone()[0]}")
             print(f"active goals: {len(memory.list_goals())}")
             print(f"pending tasks: {len(memory.list_tasks())}")
+        elif line == "/backup":
+            print(_export_backup(memory))
         elif line == "/loop" or line.startswith("/loop "):
             rest = line[len("/loop"):].strip().split(" ", 1)
             if len(rest) < 2 or not rest[0].isdigit():

@@ -217,6 +217,29 @@ class Memory:
         self.db.commit()
         return cur.rowcount > 0
 
+    # -- backup / export ---------------------------------------------------------
+    def export_all(self) -> dict:
+        """Dump every durable table to plain JSON-able dicts. Embeddings are
+        excluded on purpose — they're regenerable and bulky; this is a
+        human-readable/restorable backup of what OSIRIS *knows*, not a raw
+        clone of osiris.db. Unlike code (which lives on GitHub too),
+        memories/goals/tasks/applications have no copy anywhere else."""
+        memories = [dict(r) for r in self.db.execute(
+            "SELECT id, text, kind, created_at FROM memories ORDER BY id").fetchall()]
+        goals = self.list_goals()
+        tasks = [dict(r) for r in self.db.execute(
+            "SELECT id, description, due, done, created_at FROM tasks ORDER BY id").fetchall()]
+        applications = [dict(r) for r in self.db.execute(
+            "SELECT id, company, role, contact_email, status, applied_date, notes, created_at "
+            "FROM applications ORDER BY id").fetchall()]
+        return {
+            "exported_at": datetime.now().isoformat(timespec="seconds"),
+            "memories": memories,
+            "goals": goals,
+            "tasks": tasks,
+            "applications": applications,
+        }
+
     # -- local document index (fs_* is on-demand reads; this is the searchable index) ---
     def doc_up_to_date(self, path: str, mtime: float) -> bool:
         row = self.db.execute("SELECT mtime FROM doc_chunks WHERE path=? LIMIT 1", (path,)).fetchone()

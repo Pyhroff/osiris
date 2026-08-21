@@ -95,3 +95,13 @@ AUTHORIZED_TARGETS = os.getenv("OSIRIS_AUTHORIZED_TARGETS", "")
 
 MAX_AGENT_STEPS = 15  # hard cap on tool-call loops per user turn (profiles can override)
 MAX_HISTORY = 60      # keep sessions from growing unbounded (trimmed at turn boundaries)
+
+# True if this project folder itself lives under a OneDrive-synced path. Files
+# that are .gitignored (osiris.db, credentials.json, token.json, workspace/)
+# still get silently uploaded to Microsoft's cloud in that case — git ignoring
+# them only keeps them off GitHub, it doesn't stop OneDrive. Not necessarily a
+# problem (it doubles as an off-machine backup), just worth surfacing once
+# instead of it being invisible. Silence the startup note with
+# OSIRIS_ACK_ONEDRIVE=1 in .env.
+ON_ONEDRIVE = "onedrive" in str(ROOT).lower()
+ACK_ONEDRIVE = os.getenv("OSIRIS_ACK_ONEDRIVE", "").lower() in ("1", "on", "true")

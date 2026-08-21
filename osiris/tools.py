@@ -160,6 +160,15 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         {"type": "object", "properties": {"memory_id": {"type": "integer"}}, "required": ["memory_id"]},
         lambda memory_id: "forgotten" if memory.forget(memory_id) else "error: no such memory")
 
+    reg.register(
+        "export_memory",
+        "Back up all durable memory (facts, goals/milestones, tasks, tracked "
+        "applications) to a timestamped JSON file in workspace/backups/. Nothing "
+        "else backs up osiris.db, so run this whenever the user asks for a backup "
+        "or export of what OSIRIS knows, or periodically as good hygiene.",
+        {"type": "object", "properties": {}},
+        lambda: _export_backup(memory))
+
     # -- planning ----------------------------------------------------------------
     reg.register(
         "create_plan", "Break a long-horizon goal into milestones with due dates and persist it.",
@@ -609,6 +618,20 @@ def _write_file(path: str, content: str) -> str:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return f"wrote {len(content)} chars to {path}"
+
+
+def _export_backup(memory: Memory) -> str:
+    """Dump memories/goals/tasks/applications to a timestamped JSON file under
+    workspace/backups/ — the closest thing osiris.db has to a safety net."""
+    data = memory.export_all()
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    rel = f"backups/osiris-backup-{stamp}.json"
+    p = _safe_path(rel)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    return (f"backed up {len(data['memories'])} memories, {len(data['goals'])} goals, "
+           f"{len(data['tasks'])} tasks, {len(data['applications'])} applications "
+           f"to workspace/{rel}")
 
 
 def _git_sync_check(repo: str) -> dict:

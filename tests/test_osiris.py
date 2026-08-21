@@ -143,7 +143,7 @@ def test_scheduler_lifecycle(mem):
 
 def test_registry_complete_and_well_formed(reg):
     specs = reg.specs()
-    assert len(specs) == 58
+    assert len(specs) == 59
     assert all({"name", "description", "parameters"} <= set(s) for s in specs)
     assert "unknown tool" in reg.execute("nope", {})
 
@@ -408,6 +408,76 @@ def test_application_tracking_lifecycle(reg):
     apps = json.loads(reg.execute("list_applications", {"status": "interview"}))
     assert apps[0]["status"] == "interview"
     assert reg.execute("update_application_status", {"application_id": 99999, "status": "x"}) == "error: no such application"
+
+
+# -- backup / export --------------------------------------------------------
+
+def test_memory_export_all_shape(mem):
+    mem.remember("favorite editor: neovim")
+    mem.add_task("ship the thing", "2026-09-01T09:00:00")
+    dump = mem.export_all()
+    assert set(dump) == {"exported_at", "memories", "goals", "tasks", "applications"}
+    assert any(m["text"] == "favorite editor: neovim" for m in dump["memories"])
+    assert any(t["description"] == "ship the thing" for t in dump["tasks"])
+    # embeddings are deliberately excluded from the backup — regenerable, bulky
+    assert "embedding" not in dump["memories"][0]
+
+
+def test_export_memory_tool_writes_backup_file(reg, mem):
+    mem.remember("test fact for backup")
+    out = reg.execute("export_memory", {})
+    assert "backed up" in out and "1 memories" in out
+    backups = list((config.WORKSPACE / "backups").glob("osiris-backup-*.json"))
+    assert len(backups) == 1
+    saved = json.loads(backups[0].read_text(encoding="utf-8"))
+    assert any(m["text"] == "test fact for backup" for m in saved["memories"])
+
+
+# -- /status live checks (main.py) -------------------------------------------
+
+def test_check_github_reports_invalid_token(monkeypatch):
+    import main
+    monkeypatch.setattr(config, "GITHUB_TOKEN", "bad-token")
+    class FakeResp:
+        status_code = 401
+        def json(self): return {}
+    monkeypatch.setattr(main.requests, "get", lambda *a, **k: FakeResp())
+    assert "not working" in main._check_github()
+
+
+def test_check_github_reports_valid_token(monkeypatch):
+    import main
+    monkeypatch.setattr(config, "GITHUB_TOKEN", "good-token")
+    class FakeResp:
+        status_code = 200
+        def json(self): return {"login": "Pyhroff"}
+    monkeypatch.setattr(main.requests, "get", lambda *a, **k: FakeResp())
+    assert "authorized as Pyhroff" in main._check_github()
+
+
+def test_check_github_missing_token(monkeypatch):
+    import main
+    monkeypatch.setattr(config, "GITHUB_TOKEN", "")
+    assert "not set" in main._check_github()
+
+
+def test_check_gmail_not_yet_authorized(monkeypatch, tmp_path):
+    import main
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    (tmp_path / "credentials.json").write_text("{}")
+    assert "not yet authorized" in main._check_gmail()
+
+
+def test_check_gmail_missing_credentials(monkeypatch, tmp_path):
+    import main
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    assert "credentials.json missing" in main._check_gmail()
+
+
+def test_check_ollama_not_running(monkeypatch):
+    import main
+    monkeypatch.setattr(config, "OLLAMA_HOST", "http://localhost:1")  # nothing listens here
+    assert "not running" in main._check_ollama()
 
 
 def test_graceful_errors_without_credentials(reg):

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-_MEMORY = ["remember", "recall", "list_memories", "forget", "note", "read_journal",
-           "current_datetime"]
+_MEMORY = ["remember", "recall", "list_memories", "forget", "export_memory", "note",
+           "read_journal", "current_datetime"]
 
 
 @dataclass(frozen=True)
