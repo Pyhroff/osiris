@@ -45,7 +45,24 @@ def _make(name: str) -> BaseLLM | None:
 
 
 # Local models ranked by tool-calling competence. gemma is absent on purpose:
-# it has no tool support, which matters for an agent runtime.
+# Ollama itself rejects tool calls for it ("does not support tools", confirmed
+# live against gemma3) — that's not a competence gap, it structurally can't.
+#
+# qwen3 ranks first on accuracy: 10/10 correct tool+args in a 10-case, 3-model
+# benchmark (benchmarks/tool_calling_reliability.py) vs. 7/10 for llama3.2.
+# But on CPU-only hardware (no CUDA device) it took 37-155s per call in that
+# same run — a "thinking" model burning hundreds of reasoning tokens before
+# the answer — vs. ~4-6s for llama3.2 on identical tasks. Ollama's native API
+# can suppress that with think:false (verified: 100s -> 10s, same accuracy on
+# a spot check) but its OpenAI-compatible endpoint — what OpenAICompatLLM
+# actually calls — silently ignores that flag (verified: still ~78s with it
+# set), so this ranking can't fix the latency itself without a deeper change
+# to how Ollama is called. Left qwen3 ranked first anyway: this was only
+# measured on one CPU-only machine, and reordering the *default* for every
+# user based on a single hardware sample would be trading a proven accuracy
+# edge for a speed guess that might not even generalize to GPU setups. If
+# this exact tradeoff bites you, OSIRIS_OLLAMA_MODEL in .env already
+# overrides this ranking outright — see .env.example.
 _OLLAMA_RANK = ["qwen3", "qwen2.5", "llama3.3", "llama3.1", "phi4", "mistral", "llama3.2", "llama3"]
 
 

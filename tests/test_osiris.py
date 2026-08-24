@@ -976,3 +976,75 @@ def test_build_content_with_images_multiple_images_all_referenced():
     from pathlib import Path
     out = discord_bot._build_content_with_images("compare these", [Path("/inbox/a.png"), Path("/inbox/b.png")])
     assert "a.png" in out and "b.png" in out
+
+
+# -- schema_repair (constrained-decode argument repair) ----------------------
+
+def test_needs_repair_true_when_required_key_missing():
+    from osiris.providers import schema_repair
+    schema = {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]}
+    assert schema_repair.needs_repair({}, schema) is True
+    assert schema_repair.needs_repair({"repo": "osiris"}, schema) is False
+
+
+def test_needs_repair_true_when_args_not_a_dict():
+    from osiris.providers import schema_repair
+    schema = {"type": "object", "properties": {}, "required": []}
+    assert schema_repair.needs_repair(None, schema) is True
+    assert schema_repair.needs_repair("not a dict", schema) is True
+
+
+def test_needs_repair_false_for_no_required_fields():
+    """A tool like current_datetime has no required args at all — empty
+    args should never be flagged as needing repair."""
+    from osiris.providers import schema_repair
+    schema = {"type": "object", "properties": {}}  # no "required" key at all
+    assert schema_repair.needs_repair({}, schema) is False
+
+
+def test_repair_args_returns_none_on_network_failure(monkeypatch):
+    from osiris.providers import schema_repair
+    def boom(*a, **k):
+        raise schema_repair.requests.RequestException("connection refused")
+    monkeypatch.setattr(schema_repair.requests, "post", boom)
+    result = schema_repair.repair_args(
+        "http://localhost:11434/v1", "ollama", "llama3.2",
+        "git_status", {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]},
+        "check status of osiris")
+    assert result is None
+
+
+def test_repair_args_returns_none_on_malformed_json_response(monkeypatch):
+    from osiris.providers import schema_repair
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": "not valid json{{"}}]}
+    monkeypatch.setattr(schema_repair.requests, "post", lambda *a, **k: FakeResp())
+    result = schema_repair.repair_args(
+        "http://localhost:11434/v1", "ollama", "llama3.2",
+        "git_status", {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]},
+        "check status of osiris")
+    assert result is None
+
+
+def test_repair_args_returns_parsed_dict_on_success(monkeypatch):
+    from osiris.providers import schema_repair
+    class FakeResp:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '{"repo": "osiris"}'}}]}
+    captured = {}
+    def fake_post(url, headers, json, timeout):
+        captured["url"] = url
+        captured["payload"] = json
+        return FakeResp()
+    monkeypatch.setattr(schema_repair.requests, "post", fake_post)
+    result = schema_repair.repair_args(
+        "http://localhost:11434/v1", "ollama", "llama3.2",
+        "git_status", {"type": "object", "properties": {"repo": {"type": "string"}}, "required": ["repo"]},
+        "check status of osiris")
+    assert result == {"repo": "osiris"}
+    assert captured["url"] == "http://localhost:11434/v1/chat/completions"
+    assert captured["payload"]["response_format"]["type"] == "json_schema"
+    assert captured["payload"]["response_format"]["json_schema"]["name"] == "git_status"

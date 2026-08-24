@@ -143,7 +143,8 @@ def build_registry(memory: Memory, planner: Planner) -> ToolRegistry:
         lambda text: f"stored memory #{memory.remember(text)}")
 
     reg.register(
-        "recall", "Search stored memories by query.",
+        "recall", "Search OSIRIS's internal memory (previously-remembered facts about "
+                 "the user, NOT files or the web) by query.",
         {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
         lambda query: json.dumps(memory.recall(query, top_k=5)) or "no relevant memories")
 

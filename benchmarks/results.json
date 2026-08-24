@@ -1,0 +1,267 @@
+[
+  {
+    "model": "llama3.2",
+    "results": [
+      {
+        "prompt": "Remember that I prefer dark mode in all my editors.",
+        "expected": "remember",
+        "outcome": "wrong_tool",
+        "tool": "fs_write",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 4.9
+      },
+      {
+        "prompt": "What do you know about my coding preferences?",
+        "expected": "recall",
+        "outcome": "wrong_tool",
+        "tool": "web_search",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 4.9
+      },
+      {
+        "prompt": "Schedule a reminder to call mom tomorrow at 5pm.",
+        "expected": "schedule_task",
+        "outcome": "correct",
+        "tool": "schedule_task",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 6.2
+      },
+      {
+        "prompt": "Show me the git status of my PromptStrike repo.",
+        "expected": "git_status",
+        "outcome": "correct",
+        "tool": "git_status",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 3.9
+      },
+      {
+        "prompt": "What are the last 5 commits in the osiris repo?",
+        "expected": "git_log",
+        "outcome": "correct",
+        "tool": "git_log",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 4.8
+      },
+      {
+        "prompt": "List the files in my StylesOS folder.",
+        "expected": "fs_list",
+        "outcome": "correct",
+        "tool": "fs_list",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 3.9
+      },
+      {
+        "prompt": "Read the README.md file in my Bolt project.",
+        "expected": "fs_read",
+        "outcome": "correct",
+        "tool": "fs_read",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 4.5
+      },
+      {
+        "prompt": "Commit my changes in the darkdecoder repo with the message 'fix login bug'.",
+        "expected": "git_commit",
+        "outcome": "correct",
+        "tool": "git_commit",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 5.0
+      },
+      {
+        "prompt": "What's today's date and time?",
+        "expected": "current_datetime",
+        "outcome": "correct",
+        "tool": "current_datetime",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 3.8
+      },
+      {
+        "prompt": "Note that I finished the OSIRIS README rewrite.",
+        "expected": "note",
+        "outcome": "wrong_tool",
+        "tool": "fs_write",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 5.4
+      }
+    ]
+  },
+  {
+    "model": "gemma3",
+    "results": [
+      {
+        "prompt": "Remember that I prefer dark mode in all my editors.",
+        "expected": "remember",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.1
+      },
+      {
+        "prompt": "What do you know about my coding preferences?",
+        "expected": "recall",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.0
+      },
+      {
+        "prompt": "Schedule a reminder to call mom tomorrow at 5pm.",
+        "expected": "schedule_task",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.1
+      },
+      {
+        "prompt": "Show me the git status of my PromptStrike repo.",
+        "expected": "git_status",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.1
+      },
+      {
+        "prompt": "What are the last 5 commits in the osiris repo?",
+        "expected": "git_log",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.0
+      },
+      {
+        "prompt": "List the files in my StylesOS folder.",
+        "expected": "fs_list",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.1
+      },
+      {
+        "prompt": "Read the README.md file in my Bolt project.",
+        "expected": "fs_read",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.0
+      },
+      {
+        "prompt": "Commit my changes in the darkdecoder repo with the message 'fix login bug'.",
+        "expected": "git_commit",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.1
+      },
+      {
+        "prompt": "What's today's date and time?",
+        "expected": "current_datetime",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.1
+      },
+      {
+        "prompt": "Note that I finished the OSIRIS README rewrite.",
+        "expected": "note",
+        "outcome": "error: HTTPError",
+        "repaired": null,
+        "seconds": 2.1
+      }
+    ]
+  },
+  {
+    "model": "qwen3",
+    "results": [
+      {
+        "prompt": "Remember that I prefer dark mode in all my editors.",
+        "expected": "remember",
+        "outcome": "correct",
+        "tool": "remember",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 100.3
+      },
+      {
+        "prompt": "What do you know about my coding preferences?",
+        "expected": "recall",
+        "outcome": "correct",
+        "tool": "recall",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 37.6
+      },
+      {
+        "prompt": "Schedule a reminder to call mom tomorrow at 5pm.",
+        "expected": "schedule_task",
+        "outcome": "correct",
+        "tool": "schedule_task",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 116.8
+      },
+      {
+        "prompt": "Show me the git status of my PromptStrike repo.",
+        "expected": "git_status",
+        "outcome": "correct",
+        "tool": "git_status",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 44.1
+      },
+      {
+        "prompt": "What are the last 5 commits in the osiris repo?",
+        "expected": "git_log",
+        "outcome": "correct",
+        "tool": "git_log",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 39.5
+      },
+      {
+        "prompt": "List the files in my StylesOS folder.",
+        "expected": "fs_list",
+        "outcome": "correct",
+        "tool": "fs_list",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 111.9
+      },
+      {
+        "prompt": "Read the README.md file in my Bolt project.",
+        "expected": "fs_read",
+        "outcome": "correct",
+        "tool": "fs_read",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 69.2
+      },
+      {
+        "prompt": "Commit my changes in the darkdecoder repo with the message 'fix login bug'.",
+        "expected": "git_commit",
+        "outcome": "correct",
+        "tool": "git_commit",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 44.9
+      },
+      {
+        "prompt": "What's today's date and time?",
+        "expected": "current_datetime",
+        "outcome": "correct",
+        "tool": "current_datetime",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 35.6
+      },
+      {
+        "prompt": "Note that I finished the OSIRIS README rewrite.",
+        "expected": "note",
+        "outcome": "correct",
+        "tool": "note",
+        "args_ok": true,
+        "repaired": null,
+        "seconds": 86.2
+      }
+    ]
+  }
+]
