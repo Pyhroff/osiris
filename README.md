@@ -2,11 +2,20 @@
 
 ![tests](https://github.com/Pyhroff/osiris/actions/workflows/ci.yml/badge.svg)
 
-Personal AI operating system — intelligence as the kernel. Model-agnostic,
-multi-agent, with persistent memory, long-horizon planning, a task scheduler,
-sandboxed files, and Gmail/Calendar/Drive/GitHub/Discord integration. Runs
-entirely on **free** API tiers (Gemini, Groq, Cerebras, Mistral, OpenRouter,
-GitHub Models, local Ollama).
+A model-agnostic agent runtime built as a real, daily-used personal AI
+assistant — not a demo. The engineering surface: **provider abstraction**
+(8 backends, automatic failover, one shared adapter), **agentic
+tool-calling** (9 keyword-routed personas, ~40 tools, per-agent scoping,
+circuit-breaker retry logic), **RAG-style memory** (embeddings + cosine
+recall with graceful keyword fallback, session-to-memory reflection), and
+**local-model reliability engineering** (see [Measured, not assumed](#measured-not-assumed)
+below — this isn't just prompting, it's provider-quirk debugging with
+receipts). Runs entirely on **free** API tiers (Gemini, Groq, Cerebras,
+Mistral, OpenRouter, GitHub Models, local Ollama).
+
+One of the 9 agent personas happens to be security-focused (the author's
+day job/degree) — see the agent table below — but that's a subset, not
+the point of the system.
 
 ```
 OSIRIS/
@@ -50,6 +59,34 @@ every tool:
 | aisec | LLM red-teaming / jailbreak methodology, adversarial test design | fs_*, scaffold_project, git_* |
 | research | Web/Drive/semantic-doc search, synthesis into saved notes or a PDF | web_search, drive_*, index_folder, search_docs, write_pdf |
 | personal | Default fallback — every tool, incl. Discord + Calendar | (all ~40) |
+
+## Measured, not assumed
+
+`_OLLAMA_RANK` (which local model OSIRIS prefers) used to be an educated
+guess, ranked by assumed tool-calling competence. It's an educated guess in
+a lot of agent frameworks — provider docs claim reliability, nobody actually
+measures it against the specific models people have pulled. So I built a
+real eval harness ([`benchmarks/`](benchmarks/)) against OSIRIS's own tool
+registry and production code path — not a toy schema, not a mock — and ran
+it against 3 locally-pulled models. Full methodology and raw results:
+[`benchmarks/FINDINGS.md`](benchmarks/FINDINGS.md). The short version:
+
+- **Confirmed, not assumed**: one model (`gemma3`) can't do tool-calling on
+  Ollama at all — verified live via the actual API error, not inferred.
+- **A real tradeoff, quantified**: the most-accurate model (`qwen3`, 10/10
+  correct in testing) took 37–155 seconds per call on CPU-only hardware —
+  a "thinking" model burning hundreds of reasoning tokens before every
+  answer. Traced the fix (`think: false`) to Ollama's *native* API, then
+  verified it's silently ignored on the OpenAI-compatible endpoint OSIRIS
+  actually calls — a real architecture decision, documented, not glossed
+  over with an assumption.
+- **A bug found and fixed**: a weaker model (`llama3.2`) consistently
+  confused two tools with overlapping-sounding descriptions. Ruled out the
+  test harness as the cause first (re-ran against OSIRIS's real system
+  prompt, same failure), then fixed it with a tightened tool description,
+  verified by re-test. A second, similar-looking confusion did *not*
+  respond to the same fix after two attempts — reported as an open
+  limitation rather than forced into a clean result.
 
 ## Setup
 
@@ -232,5 +269,9 @@ without credentials.
 - [x] `/status` does live validity checks (refresh/ping), not just "is a key present"
 - [x] OneDrive/cloud-sync detection — one-time startup note if the project folder itself syncs
 - [x] Discord bot handles image attachments — a phone photo now reaches `analyze_image`, not just text
+- [x] Measured local-model tool-calling benchmark (`benchmarks/`) — replaced a guessed model
+      ranking with actual data, found and fixed a real tool-description bug
+- [ ] Give Ollama its own native-API code path to unlock the measured 10x `think:false`
+      speedup on reasoning models (currently silently ignored on the shared OpenAI-compat adapter)
 - [ ] Knowledge graph over memories (entities + relations, not just embeddings)
 - [ ] Notion integration
