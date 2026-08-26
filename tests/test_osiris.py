@@ -809,6 +809,104 @@ def test_pseudo_function_calls_rescued_from_text():
     assert "<function" not in out.text and "Done." in out.text
 
 
+# -- Ollama native adapter (think:false path) ---------------------------------------------------
+
+def test_ollama_native_messages_pass_args_as_dict_not_json_string():
+    """The one real wire-format difference from _to_openai_messages: native
+    /api/chat wants tool_call arguments as an actual object, verified live
+    — json.dumps()-ing them (the OpenAI-compat convention) would be wrong
+    here, not just a style choice."""
+    from osiris.providers.ollama_native import _to_native_messages
+    msgs = [{"role": "assistant", "content": None,
+            "tool_calls": [ToolCall("git_status", {"repo": "osiris"}, id="call_1")]}]
+    out = _to_native_messages(msgs, "")
+    assert out[0]["tool_calls"][0]["function"]["arguments"] == {"repo": "osiris"}
+
+
+def test_ollama_native_ids_match_for_idless_tool_calls():
+    from osiris.providers.ollama_native import _to_native_messages
+    msgs = [
+        {"role": "assistant", "content": None,
+         "tool_calls": [ToolCall("a", {}, id=""), ToolCall("b", {}, id="")]},
+        {"role": "tool", "name": "a", "tool_call_id": "", "content": "ra"},
+        {"role": "tool", "name": "b", "tool_call_id": "", "content": "rb"},
+    ]
+    out = _to_native_messages(msgs, "")
+    ids = [c["id"] for c in out[0]["tool_calls"]]
+    assert ids == [out[1]["tool_call_id"], out[2]["tool_call_id"]]
+
+
+def test_ollama_native_chat_parses_message_not_choices(monkeypatch):
+    """The other real wire-format difference: native wraps the reply in
+    "message" directly, not "choices"[0]["message"] like OpenAI-compat."""
+    monkeypatch.setattr(config, "OLLAMA_THINK", False)  # explicit, not relying on the real .env
+    from osiris.providers.ollama_native import OllamaNativeLLM
+    class FakeResp:
+        status_code = 200
+        text = ""
+        def json(self):
+            return {"message": {"role": "assistant", "content": "clean, up to date"}}
+    captured = {}
+    def fake_post(url, json, timeout):
+        captured["url"] = url
+        captured["payload"] = json
+        return FakeResp()
+    monkeypatch.setattr("osiris.providers.ollama_native.requests.post", fake_post)
+    llm = OllamaNativeLLM("llama3.2", host="http://localhost:11434")
+    out = llm.chat([{"role": "user", "content": "check status"}])
+    assert out.text == "clean, up to date"
+    assert captured["url"] == "http://localhost:11434/api/chat"
+    assert captured["payload"]["think"] is False
+
+
+def test_ollama_native_tool_call_args_already_a_dict(monkeypatch):
+    """Confirms the adapter does NOT json.loads() dict-shaped arguments —
+    the response parser must accept them as-is, matching what's actually
+    observed on the wire, not assume a JSON string like OpenAI-compat."""
+    from osiris.providers.ollama_native import OllamaNativeLLM
+    class FakeResp:
+        status_code = 200
+        text = ""
+        def json(self):
+            return {"message": {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "call_1", "function": {"name": "git_status", "arguments": {"repo": "osiris"}}}
+            ]}}
+    monkeypatch.setattr("osiris.providers.ollama_native.requests.post", lambda *a, **k: FakeResp())
+    llm = OllamaNativeLLM("llama3.2")
+    out = llm.chat([{"role": "user", "content": "x"}])
+    assert out.tool_calls[0].name == "git_status"
+    assert out.tool_calls[0].args == {"repo": "osiris"}
+
+
+def test_ollama_native_think_config_default_is_off(monkeypatch):
+    monkeypatch.setattr(config, "OLLAMA_THINK", False)
+    from osiris.providers.ollama_native import OllamaNativeLLM
+    assert OllamaNativeLLM("llama3.2").think is False
+
+
+def test_ollama_native_think_can_be_overridden_per_instance():
+    from osiris.providers.ollama_native import OllamaNativeLLM
+    assert OllamaNativeLLM("qwen3", think=True).think is True
+
+
+def test_ollama_native_embed_not_implemented():
+    from osiris.providers.ollama_native import OllamaNativeLLM
+    with pytest.raises(NotImplementedError):
+        OllamaNativeLLM("llama3.2").embed("text")
+
+
+def test_make_ollama_uses_native_adapter_not_openai_compat(monkeypatch):
+    """Regression guard for the actual point of this change — _make must
+    route Ollama through OllamaNativeLLM, not silently fall back to the
+    shared adapter that can't honor think:false."""
+    from osiris.providers import _make
+    monkeypatch.setattr("osiris.providers._ollama_model", lambda: "llama3.2:latest")
+    llm = _make("ollama")
+    from osiris.providers.ollama_native import OllamaNativeLLM
+    assert isinstance(llm, OllamaNativeLLM)
+    assert llm.model == "llama3.2:latest"
+
+
 def test_null_tool_args_do_not_crash(mem, reg):
     class NullArgsLLM(BaseLLM):
         name = "nullargs"

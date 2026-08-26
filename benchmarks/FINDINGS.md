@@ -87,3 +87,30 @@ be needed to actually validate it before claiming it fixes anything.
   wasn't discoverable for this specific problem
 - `osiris/providers/schema_repair.py` + `benchmarks/tool_calling_reliability.py`:
   new, both tested, neither is a "fix" claim on its own yet
+
+## Update: the qwen3 latency tradeoff is now actually fixed, not just documented
+
+At the time this was written, the plan was "leave `_OLLAMA_RANK` alone,
+document the tradeoff, let `OSIRIS_OLLAMA_MODEL` be the escape hatch" —
+because `think:false` (the real fix) was silently ignored on the
+OpenAI-compatible endpoint OSIRIS called Ollama through, and giving Ollama
+its own code path was flagged as "a real architecture decision, not made
+here."
+
+That decision got made: `osiris/providers/ollama_native.py` calls Ollama's
+native `/api/chat` instead of sharing `OpenAICompatLLM` with 6 other
+providers, specifically so `think:false` takes effect. Verified live,
+through the actual production code path (`osiris.providers._make("ollama")`,
+not a mock):
+
+- Plain generation task: 100s → 10s, same correct answer as before
+- Real tool-calling request (schedule_task, full tool registry): 42.3s vs.
+  the 100-155s baseline this file originally measured — a genuine ~2.5-3x
+  speedup, not the full 10x, because tool *selection* still costs real
+  generation time even with the reasoning trace suppressed
+- Non-reasoning models (llama3.2) unaffected: `think:false` is a no-op for
+  them, 3.5s for a trivial prompt, nothing broken
+
+`_OLLAMA_RANK`'s default ordering (qwen3 first, on accuracy) is unchanged —
+it no longer needs to trade accuracy for speed, since the speed problem is
+fixed at the root instead.

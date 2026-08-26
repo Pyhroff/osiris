@@ -73,13 +73,15 @@ it against 3 locally-pulled models. Full methodology and raw results:
 
 - **Confirmed, not assumed**: one model (`gemma3`) can't do tool-calling on
   Ollama at all — verified live via the actual API error, not inferred.
-- **A real tradeoff, quantified**: the most-accurate model (`qwen3`, 10/10
-  correct in testing) took 37–155 seconds per call on CPU-only hardware —
-  a "thinking" model burning hundreds of reasoning tokens before every
-  answer. Traced the fix (`think: false`) to Ollama's *native* API, then
-  verified it's silently ignored on the OpenAI-compatible endpoint OSIRIS
-  actually calls — a real architecture decision, documented, not glossed
-  over with an assumption.
+- **A real tradeoff, quantified, then fixed at the root**: the most-accurate
+  model (`qwen3`, 10/10 correct in testing) took 37–155 seconds per call on
+  CPU-only hardware — a "thinking" model burning hundreds of reasoning
+  tokens before every answer. Traced the fix (`think: false`) to Ollama's
+  *native* API; found it was silently ignored on the OpenAI-compatible
+  endpoint OSIRIS called at the time — so Ollama now gets its own adapter
+  ([`OllamaNativeLLM`](osiris/providers/ollama_native.py)) instead of
+  sharing one with 6 other providers. Verified live: 100s→10s on a plain
+  task, ~2.5–3x on a real tool-calling request.
 - **A bug found and fixed**: a weaker model (`llama3.2`) consistently
   confused two tools with overlapping-sounding descriptions. Ruled out the
   test harness as the cause first (re-ran against OSIRIS's real system
@@ -206,7 +208,7 @@ for it) periodically, since a lost/corrupted db has no other copy.
 pytest tests/ -q
 ```
 
-77 tests, fully offline — the LLM is stubbed, git tests run against a
+100 tests, fully offline — the LLM is stubbed, git tests run against a
 throwaway temp repo, and integration tools are verified to fail gracefully
 without credentials.
 
@@ -214,8 +216,11 @@ without credentials.
 
 - **Model-agnostic by design.** The agent speaks a neutral message/tool format
   ([osiris/providers/base.py](osiris/providers/base.py)). Groq, Cerebras, Mistral,
-  OpenRouter, GitHub Models, Ollama, and OpenAI all share one OpenAI-compatible
-  adapter; adding any new provider = one small class.
+  OpenRouter, GitHub Models, and OpenAI all share one OpenAI-compatible adapter;
+  adding any new provider = one small class. Ollama is the one exception — it gets
+  its own native-API adapter ([ollama_native.py](osiris/providers/ollama_native.py))
+  specifically because its OpenAI-compat endpoint silently ignores `think:false`
+  (verified live) — a real, measured reason to break the pattern, not a default.
 - **Failover, not fragility.** Gemini rate-limited? The router silently retries the
   same request down the chain. Set priority with `OSIRIS_PROVIDERS` in `.env`.
 - **Guarded local access.** `fs_*` (read/list/find/write/edit) and `git_*` tools are
@@ -271,7 +276,11 @@ without credentials.
 - [x] Discord bot handles image attachments — a phone photo now reaches `analyze_image`, not just text
 - [x] Measured local-model tool-calling benchmark (`benchmarks/`) — replaced a guessed model
       ranking with actual data, found and fixed a real tool-description bug
-- [ ] Give Ollama its own native-API code path to unlock the measured 10x `think:false`
-      speedup on reasoning models (currently silently ignored on the shared OpenAI-compat adapter)
+- [x] `OllamaNativeLLM` — Ollama gets its own native-API code path instead of sharing the
+      OpenAI-compat adapter, specifically so `think:false` actually takes effect (it's
+      silently ignored on the compat endpoint). Verified live: 100s→10s on a plain generation
+      task, ~2.5-3x on a real tool-calling request (less than 10x there — tool selection
+      itself has generation overhead even with reasoning suppressed). `OSIRIS_OLLAMA_THINK`
+      in `.env` to override the default.
 - [ ] Knowledge graph over memories (entities + relations, not just embeddings)
 - [ ] Notion integration

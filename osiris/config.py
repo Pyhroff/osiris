@@ -38,6 +38,12 @@ OPENROUTER_MODEL = os.getenv("OSIRIS_OPENROUTER_MODEL", "meta-llama/llama-3.3-70
 GITHUB_MODELS_MODEL = os.getenv("OSIRIS_GITHUB_MODELS_MODEL", "gpt-4o-mini")
 OLLAMA_MODEL = os.getenv("OSIRIS_OLLAMA_MODEL", "")  # empty = auto-rank best pulled model
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+# Suppress "thinking" models' chain-of-thought before their answer. Measured
+# live (benchmarks/FINDINGS.md): 100s -> 10s on qwen3 for the same correct
+# answer, no accuracy loss observed. Only takes effect via Ollama's native
+# API (OllamaNativeLLM) — its OpenAI-compatible endpoint silently ignores
+# this flag, which is the whole reason that adapter exists.
+OLLAMA_THINK = os.getenv("OSIRIS_OLLAMA_THINK", "off").lower() not in ("off", "0", "false")
 OPENAI_MODEL = os.getenv("OSIRIS_OPENAI_MODEL", "gpt-4o-mini")
 
 # Show provider failover chatter in the terminal. Off = clean output; the

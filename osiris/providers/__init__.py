@@ -33,8 +33,12 @@ def _make(name: str) -> BaseLLM | None:
     if name == "ollama":
         model = _ollama_model()
         if model:
-            from .openai_compat import OpenAICompatLLM
-            return OpenAICompatLLM("ollama", f"{config.OLLAMA_HOST}/v1", "ollama", model)
+            # Native API, not the shared OpenAI-compat adapter every other
+            # provider uses — the compat endpoint silently ignores
+            # think:false (verified live), the native one honors it and
+            # cuts a reasoning model's latency ~10x. See ollama_native.py.
+            from .ollama_native import OllamaNativeLLM
+            return OllamaNativeLLM(model)
         return None
     if name in _COMPAT:
         base_url, key, model = _COMPAT[name]
@@ -50,19 +54,13 @@ def _make(name: str) -> BaseLLM | None:
 #
 # qwen3 ranks first on accuracy: 10/10 correct tool+args in a 10-case, 3-model
 # benchmark (benchmarks/tool_calling_reliability.py) vs. 7/10 for llama3.2.
-# But on CPU-only hardware (no CUDA device) it took 37-155s per call in that
-# same run — a "thinking" model burning hundreds of reasoning tokens before
-# the answer — vs. ~4-6s for llama3.2 on identical tasks. Ollama's native API
-# can suppress that with think:false (verified: 100s -> 10s, same accuracy on
-# a spot check) but its OpenAI-compatible endpoint — what OpenAICompatLLM
-# actually calls — silently ignores that flag (verified: still ~78s with it
-# set), so this ranking can't fix the latency itself without a deeper change
-# to how Ollama is called. Left qwen3 ranked first anyway: this was only
-# measured on one CPU-only machine, and reordering the *default* for every
-# user based on a single hardware sample would be trading a proven accuracy
-# edge for a speed guess that might not even generalize to GPU setups. If
-# this exact tradeoff bites you, OSIRIS_OLLAMA_MODEL in .env already
-# overrides this ranking outright — see .env.example.
+# It's also a "thinking" model that originally took 37-155s per call on
+# CPU-only hardware vs. ~4-6s for llama3.2 — but that's since been fixed at
+# the root, not worked around here: OllamaNativeLLM calls Ollama's native
+# API (not the shared OpenAI-compat adapter) specifically so think:false
+# actually takes effect, verified live: 100s -> 10s, same accuracy, same
+# task. OSIRIS_OLLAMA_MODEL in .env still overrides this ranking outright if
+# you want a specific model regardless — see .env.example.
 _OLLAMA_RANK = ["qwen3", "qwen2.5", "llama3.3", "llama3.1", "phi4", "mistral", "llama3.2", "llama3"]
 
 
