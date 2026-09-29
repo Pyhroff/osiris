@@ -5,3 +5,8 @@ osiris.db
 workspace/
 __pycache__/
 *.pyc
+
+# Local coursework and lab material
+*.zip
+ns3-*/
+proxy-hackathon*/
