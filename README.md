@@ -1,6 +1,7 @@
 # OSIRIS
 
-![tests](https://github.com/Pyhroff/osiris/actions/workflows/ci.yml/badge.svg)
+[![tests](https://github.com/Pyhroff/osiris/actions/workflows/ci.yml/badge.svg)](https://github.com/Pyhroff/osiris/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A model-agnostic personal AI assistant runtime. It covers:
 
@@ -278,3 +279,16 @@ without credentials.
       in `.env` to override the default.
 - [ ] Knowledge graph over memories (entities + relations, not just embeddings)
 - [ ] Notion integration
+
+## Security model and limitations
+
+OSIRIS is a single-user assistant that holds real credentials (Gmail, Drive, GitHub, Discord), so treat it like a shell with your accounts attached.
+
+- Confirmation before `gmail_send`, `git_push` or running project commands is requested in each agent's instructions; it is **not** enforced in code, so a model that ignores its prompt, or text it reads (email, web pages, files) that steers it, can still trigger those tools. What code does enforce: `run_recon` refuses targets that are not localhost, private ranges or listed in `OSIRIS_AUTHORIZED_TARGETS`, and allows only listed tools and flags; `run_project_command` runs only allowlisted commands.
+- Keyword routing picks an agent by surface words, not intent; ambiguous requests fall through to `personal`, which can use every tool.
+- Free-tier providers have rate limits and may log prompts; use Ollama when content must stay local.
+- `osiris.db` holds memories and history in plain SQLite; back it up with `/backup` and keep it out of synced folders.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
